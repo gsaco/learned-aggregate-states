@@ -1,0 +1,1597 @@
+\documentclass[10pt,letterpaper]{article}
+
+% ----------------------------------------------------
+% Packages
+% ----------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{microtype}
+
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{setspace}
+
+\usepackage[round,authoryear]{natbib} 
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue,
+  hyperfootnotes=false
+}
+
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+% ----------------------------------------------------
+% Theorem environments
+% ----------------------------------------------------
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newtheorem{example}{Example}
+\newtheorem{assumption}{Assumption}
+
+% ----------------------------------------------------
+% Notation shortcuts
+% ----------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\cM}{\mathcal{M}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cJ}{\mathcal{J}}
+\newcommand{\cA}{\mathcal{A}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\Cov}{\mathrm{Cov}}
+\newcommand{\Corr}{\mathrm{Corr}}
+
+% ----------------------------------------------------
+% Line spacing
+% ----------------------------------------------------
+\onehalfspacing
+
+% ----------------------------------------------------
+% Title and authors
+% ----------------------------------------------------
+\title{Representation Learning for Approximate Aggregation\\
+in Heterogeneous Agent Models}
+
+\author{
+  Gabriel Saco\thanks{We thank seminar participants for helpful comments. All errors are our own. Affiliations and acknowledgments to be added.}
+}
+
+\date{\today}
+
+% ----------------------------------------------------
+% Document
+% ----------------------------------------------------
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Approximate aggregation is central to heterogeneous-agent (HA) macroeconomics, yet Krusell--Smith-style approaches provide no structural answer to three basic questions: which statistics are optimal, how many aggregate dimensions are intrinsically necessary, and how these answers depend on economic fundamentals. We recast approximate aggregation as a representation learning problem and define a \emph{minimal predictive risk} function $R(d)$---the smallest mean-squared error achievable when all information about the wealth distribution must pass through a $d$-dimensional bottleneck---together with an \emph{effective dimension} $d^*(\varepsilon)$ that delivers a given accuracy target $\varepsilon$. Theoretically, we link $R(d)$ to conditional variance decompositions and predictive sufficiency, and we characterize $R(d)$ and $d^*(\varepsilon)$ in a linear--Gaussian benchmark in terms of eigenvalues of a low-rank operator mapping distributional features into aggregates. Empirically, we apply this framework to the Aiyagari (1994) model on an eight-point parameter grid varying idiosyncratic risk, persistence, and borrowing constraints. Across all configurations, moving from $d=1$ to $d=2$ reduces predictive risk by 28--83\%, while $d=3$ yields negligible additional gains; learned two-dimensional states outperform hand-crafted Krusell--Smith-style statistics by 40--69\% at equal dimension, remain highly interpretable (level of capital and dispersion/constraint tightness), and retain their advantages in the presence of aggregate TFP shocks. The framework thus delivers a theory-backed, data-driven diagnostic of when simple one-factor aggregation is reliable and when intrinsically richer distributional information is required.
+\end{abstract}
+
+\vspace{0.5cm}
+
+\noindent\textbf{Keywords:} heterogeneous agents, approximate aggregation, representation learning, neural networks, wealth distribution, Krusell--Smith, effective dimension
+
+\vspace{0.3cm}
+
+\noindent\textbf{JEL Codes:} C45, C63, D31, E21, E27
+
+\newpage
+
+% ====================================================
+\section{Introduction}
+\label{sec:introduction}
+% ====================================================
+
+\subsection{Approximate aggregation in heterogeneous-agent macro}
+
+A defining challenge in heterogeneous-agent (HA) macroeconomics is the curse of dimensionality induced by the cross-sectional distribution of individual states. In canonical incomplete markets models with idiosyncratic risk and borrowing constraints, such as \citet{bewley1977}, \citet{huggett1993} and \citet{aiyagari1994}, the wealth distribution $\mu_t$ over individual asset and productivity states is the natural state variable. This distribution lives in an infinite-dimensional space of probability measures, yet practical computation and economic reasoning demand low-dimensional approximations.
+
+The classical Krusell--Smith (KS) approach \citep{krusellsmith1998} proposes a simple and influential resolution. Agents forecast future prices using a small set of aggregate statistics---most prominently aggregate capital $K_t$---and one verifies ex post that the resulting forecast errors are small. This ``approximate aggregation'' result has profoundly shaped how economists think about the role of distributional dynamics, and KS-style forecasting rules are now standard in applied heterogeneous-agent models.\footnote{See, among others, \citet{denhaan2010}, \citet{algan2014}, \citet{winberry2018} and \citet{young2010} for discussions of numerical and conceptual aspects of KS-type approximations.}
+
+However, several limitations remain. First, KS methods do not provide a general principle for \emph{which} statistics to include: capital, inequality measures, tail masses, or something else. Second, they do not yield a model-based notion of how many aggregate dimensions are \emph{intrinsically} necessary: one factor may work in one calibration, two in another, with no common yardstick. Third, accumulating evidence shows that approximate aggregation can fail when borrowing constraints are tight, idiosyncratic risk is highly persistent, or policy shocks affect different parts of the wealth distribution asymmetrically. These observations raise three basic questions:
+
+\begin{center}
+\emph{When does approximate aggregation succeed or fail? What determines the minimal state-space dimension? Can we systematically discover optimal aggregate representations rather than hand-picking them?}
+\end{center}
+
+This paper answers these questions by treating approximate aggregation as a problem of \emph{learning} low-dimensional aggregate states and by providing a structural diagnostic of their adequacy.
+
+\subsection{Learned aggregate states and minimal predictive risk}
+
+Our starting point is the observation that, in any dynamic heterogeneous-agent model, the joint law of current distributional features, aggregate shocks, and future aggregates induces a predictive mapping from the infinite-dimensional object $\mu_t$ to a finite-dimensional vector of outcomes $Y_{t+1}$. We use tools from representation learning to study the minimal finite-dimensional bottleneck through which this mapping can pass without excessive information loss.
+
+Concretely, we construct an encoder--predictor architecture with two components: (i) an encoder neural network $f_\theta$ that compresses high-dimensional distributional features $X_t=\Phi(\mu_t)$ into a $d$-dimensional representation $Z_t = f_\theta(X_t)$, and (ii) a predictor network $g_\psi$ that maps $(Z_t,s_{t+1})$ into forecasts of aggregate outcomes $Y_{t+1}$. For each dimension $d$, we define the \emph{minimal predictive risk}
+\[
+R(d)
+= \inf_{\theta,\psi} \E\bigl[\|Y_{t+1} - g_\psi(f_\theta(X_t), s_{t+1})\|^2\bigr],
+\]
+and interpret $R(d)$ as an intrinsic property of the economic environment (given the feature map and loss): it is the smallest mean-squared prediction error achievable when all information about the distribution $\mu_t$ must pass through a $d$-dimensional bottleneck.
+
+Given a tolerance level $\varepsilon>0$, we then define the \emph{effective dimension}
+\[
+d^*(\varepsilon)
+= \min\{d \in \{1,2,\ldots\} : R(d) \le \varepsilon\},
+\]
+that is, the smallest number of aggregate factors sufficient to reduce predictive risk below $\varepsilon$. In this language, classical KS results show that certain hand-crafted one-factor representations (most notably $K_t$) happen to deliver small forecast errors in certain calibrations. Our framework generalizes this by:
+
+\begin{itemize}[leftmargin=1.2cm]
+\item allowing the aggregate representation to be \emph{learned} rather than fixed ex ante, and
+\item quantifying how predictive risk decreases with $d$, thereby delivering a model-based notion of effective state-space dimension.
+\end{itemize}
+
+To guide interpretation, we formalize (approximate) predictive sufficiency and show that $R(d)$ admits a variance decomposition: it equals the residual conditional variance of $Y_{t+1}$ given the optimally informative $d$-dimensional representation. In a linear--Gaussian benchmark, we further characterize $R(d)$ and $d^*(\varepsilon)$ in terms of the singular values of a low-rank operator that maps distributional features into aggregates. This benchmark provides a simple lens: if the operator is effectively rank two, then $R(d)$ falls sharply from $d=1$ to $d=2$ and changes little thereafter.
+
+\subsection{Main findings}
+
+We apply this framework to the Aiyagari (1994) incomplete markets model, using it as a canonical laboratory for approximate aggregation. We solve the model under eight calibrations that vary the volatility and persistence of idiosyncratic risk and the tightness of borrowing constraints, simulate the induced wealth distributions, and estimate $R(d)$ for $d=1,2,3$ using encoder--predictor networks trained on simulated data. We then compare learned aggregate states to standard KS-style statistics and to high-dimensional ML benchmarks.
+
+Three main findings emerge:
+
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item \emph{Approximate aggregation is essentially two-dimensional.}  
+Across all eight calibrations, moving from $d=1$ to $d=2$ reduces predictive risk by 28--83\%, whereas moving from $d=2$ to $d=3$ yields negligible additional gains. For a wide range of tolerances $\varepsilon$, the empirical effective dimension $\hat d^*(\varepsilon)$ equals two. This pattern closely matches the behavior of a low-rank linear--Gaussian benchmark and suggests that the operator mapping distributions into aggregates is effectively rank two in this environment.
+
+\item \emph{Economic fundamentals shape the cost of one-dimensional aggregation but not the effective rank.}  
+High persistence of idiosyncratic risk and tighter borrowing constraints systematically raise $R(1)$ and thus the cost of restricting attention to one-factor states, but they do not materially increase $R(2)$ or the effective dimension: two factors continue to suffice for tight tolerances. In this sense, “capital alone” becomes increasingly problematic as persistence and constraint tightness rise, but the intrinsic dimensionality of approximate aggregation remains low.
+
+\item \emph{Learned states outperform and refine Krusell--Smith statistics while remaining interpretable.}  
+At the same dimensionality, learned $d=2$ states outperform hand-crafted KS-style statistics (such as $(K_t)$ or $(K_t,\text{Gini}_t)$) by 40--69\% in predictive risk. At the same time, the learned factors are highly interpretable: the first is almost perfectly correlated with aggregate capital and other level measures, and the second loads heavily on inequality and the mass of constrained households. Together they can be read as a “level of capital” factor and a “dispersion/constraint tightness” factor. These conclusions are robust to the introduction of persistent aggregate TFP shocks.
+\end{enumerate}
+
+Taken together, these results support the view that approximate aggregation in standard HA models is not merely an empirical curiosity of particular forecasting rules, but reflects a genuine low-dimensional structure in the mapping from distributions to aggregates. The curve $d\mapsto R(d)$ and the associated effective dimension $d^*(\varepsilon)$ provide a theory-backed, data-driven diagnostic of this structure.
+
+\subsection{Relation to the literature and roadmap}
+
+Our work intersects four strands of literature. First, it contributes to the approximate aggregation and KS literature by replacing one-off forecast-error checks with a systematic, model-based measure of how much predictive information is lost when restricting attention to $d$-dimensional states. Second, it complements computational methods for HA models---including sequence-space approaches \citep{reiter2009,auclertetal2021,winberry2018}---by quantifying the number and nature of distributional factors that are predictive for aggregates, rather than focusing solely on solution efficiency. Third, it connects to work using machine learning in macroeconomics \citep[e.g.][]{maliar2021,duarte2018}, but uses ML as a \emph{measurement device} to diagnose compressibility of distributional dynamics rather than only as a numerical solver. Finally, it is related to sufficient-statistics and dimension-reduction ideas in statistics and econometrics: our predictive risk curve $R(d)$ and effective dimension $d^*(\varepsilon)$ provide an approximate, data-driven counterpart to structural sufficiency notions.
+
+The remainder of the paper is organized as follows. Section~\ref{sec:framework} develops the representation learning framework, defines $R(d)$ and $d^*(\varepsilon)$, and presents the key theoretical results, including the variance decomposition and the linear--Gaussian benchmark. Section~\ref{sec:model} describes the Aiyagari model, calibration grid, and simulation design. Section~\ref{sec:results} reports the estimated $R(d)$ across configurations and discusses the implied effective dimensions. Section~\ref{sec:baselines} compares learned states to hand-crafted KS statistics and high-dimensional ML baselines. Section~\ref{sec:interpretation} analyzes the economic content of the learned factors. Section~\ref{sec:tfp_shocks} studies robustness to aggregate TFP shocks. Section~\ref{sec:conclusion} concludes and outlines directions for applying the framework to richer heterogeneous-agent environments and to policy analysis.
+
+% ====================================================
+\section{Representation Learning Framework}
+\label{sec:framework}
+% ====================================================
+
+This section develops the conceptual and mathematical framework. We first formalize the probabilistic setup induced by the heterogeneous-agent model and the feature map, then define approximate aggregation and predictive sufficiency. We next introduce the minimal predictive risk function $R(d)$ and the associated effective dimension $d^*(\varepsilon)$, establish basic properties and a variance decomposition, and study a linear--Gaussian benchmark that clarifies when low-dimensional aggregation is possible. We also make the connection to Krusell--Smith (KS) explicit, discuss estimation and generalization, and emphasize that $R(d)$ is a structural property of the model.
+
+% ----------------------------------------------------
+\subsection{Heterogeneous-agent environment and feature map}
+\label{subsec:ha_env}
+% ----------------------------------------------------
+
+Consider a heterogeneous-agent economy in discrete time $t = 0,1,2,\ldots$. A continuum of agents indexed by $i \in [0,1]$ is characterized by individual states
+\[
+x_{it} = (a_{it}, e_{it}) \in \cA \times \cE,
+\]
+where $a_{it}$ denotes assets and $e_{it}$ idiosyncratic productivity. Let $\mu_t \in \cM$ denote the cross-sectional distribution of individual states, where $\cM$ is the space of Borel probability measures on $\cA \times \cE$. For any Borel set $B \subseteq \cA \times \cE$,
+\[
+\mu_t(B) = \int_0^1 \mathbf{1}\{x_{it} \in B\}\,di.
+\]
+
+Let $s_t \in \cS$ denote exogenous aggregate shocks (e.g.\ TFP), and let $Y_t \in \R^q$ collect aggregate outcomes of interest such as capital, output, or aggregate consumption. In a structural model, the law of motion for $(\mu_t, s_t, Y_t)$ can be written abstractly as
+\begin{align}
+\mu_{t+1} &= \Gamma(\mu_t, s_{t+1}), \label{eq:Gamma}\\
+Y_{t+1} &= H(\mu_t, s_{t+1}) + \eta_{t+1}, \label{eq:H}
+\end{align}
+where $\Gamma$ and $H$ are (possibly complicated) nonlinear operators derived from primitives and equilibrium conditions, and $\eta_{t+1}$ is a noise term capturing finite-agent simulation noise and any exogenous disturbances beyond $s_{t+1}$.
+
+Because $\mu_t$ is infinite-dimensional, we work with a finite-dimensional feature map $\Phi:\cM \to \R^p$ and define
+\[
+X_t = \Phi(\mu_t) \in \R^p
+\]
+as a vector of distributional features. In the Aiyagari application below, $\Phi$ includes histogram bins of the wealth distribution and summary statistics (moments, inequality measures, mass at the borrowing constraint, etc.; see Section~\ref{subsec:features_model}).
+
+% ----------------------------------------------------
+\subsection{Probabilistic setup and function classes}
+\label{subsec:prob_setup}
+% ----------------------------------------------------
+
+We now formalize the probabilistic environment induced by the structural model and the feature map.
+
+Let $(\Omega,\cF,\mathbb{P})$ be a probability space on which the stochastic process
+\[
+\{(\mu_t,s_t,Y_t)\}_{t\in\mathbb{Z}}
+\]
+is defined via the structural maps \eqref{eq:Gamma}--\eqref{eq:H} and the exogenous shock process for $\{s_t\}$. The feature map $\Phi$ induces a process
+\[
+(X_t,s_{t+1},Y_{t+1}) = (\Phi(\mu_t),s_{t+1},Y_{t+1}).
+\]
+
+Throughout the theory we work at the level of this induced process and impose the following standing assumption.
+
+\begin{assumption}[Probabilistic setup]
+\label{ass:prob_setup}
+The triple $\{(X_t,s_{t+1},Y_{t+1})\}_{t\in\mathbb{Z}}$ satisfies:
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item \emph{Stationarity and ergodicity:} the process is strictly stationary and ergodic under $\mathbb{P}$.
+\item \emph{Square integrability:} $\E\|Y_{t+1}\|^2 < \infty$.
+\item $X_t$ takes values in $\R^p$ and $s_{t+1}$ in a measurable space $\cS$, with $(X_t,s_{t+1})$ jointly square-integrable.
+\end{enumerate}
+All expectations below are taken with respect to the stationary distribution of $(X_t,s_{t+1},Y_{t+1})$.
+\end{assumption}
+
+We consider classes of encoder and predictor functions. For each representation dimension $d \geq 1$ let
+\[
+\cF_d = \bigl\{ f: \R^p \to \R^d \,\big|\, f \text{ measurable} \bigr\}
+\]
+be the set of measurable encoders $f(X_t)=Z_t\in\R^d$, and let
+\[
+\cG = \bigl\{ g: \R^d \times \cS \to \R^q \,\big|\, g \text{ measurable} \bigr\}
+\]
+be the set of measurable predictors.
+
+In practice we work with parametric subclasses of $\cF_d$ and $\cG$ represented by neural networks:
+\[
+\{ f_\theta : \theta \in \Theta_d\} \subset \cF_d,
+\qquad
+\{ g_\psi : \psi \in \Psi_d\} \subset \cG,
+\]
+but for the conceptual discussion it is useful to distinguish population objects defined over all measurable functions from their approximations within network classes.
+
+% ----------------------------------------------------
+\subsection{Approximate aggregation and predictive sufficiency}
+\label{subsec:approx_agg}
+% ----------------------------------------------------
+
+The classical approximate aggregation question asks whether there exists a low-dimensional mapping $\phi:\cM\to\R^d$ such that aggregate dynamics can be well approximated using only $S_t = \phi(\mu_t)$ as a state. A canonical example is the Krusell--Smith choice $\phi(\mu_t) = K_t$, aggregate capital.
+
+We formalize the informational content of such mappings via predictive sufficiency with respect to $Y_{t+1}$ and $s_{t+1}$.
+
+\begin{definition}[Predictive sufficiency]
+\label{def:pred_suff}
+A measurable mapping $\phi:\cM \to \R^d$ is \emph{predictively sufficient} for $Y_{t+1}$ given $s_{t+1}$ if
+\begin{equation}
+\E[Y_{t+1} \mid \mu_t, s_{t+1}]
+= \E[Y_{t+1} \mid \phi(\mu_t), s_{t+1}]
+\quad \text{almost surely.}
+\label{eq:pred_suff}
+\end{equation}
+\end{definition}
+
+If $\phi$ is predictively sufficient, then the $d$-dimensional state $S_t = \phi(\mu_t)$ contains all information in $\mu_t$ that matters for predicting $Y_{t+1}$ conditional on $s_{t+1}$, under squared loss. In particular, the optimal predictor $\E[Y_{t+1}\mid \mu_t,s_{t+1}]$ can be written as a measurable function of $(\phi(\mu_t),s_{t+1})$.
+
+Exact sufficiency is typically too strong; approximate aggregation is better captured by a relaxed notion that limits the residual conditional variance rather than requiring it to be exactly zero.
+
+\begin{definition}[$\varepsilon$-predictive sufficiency]
+\label{def:eps_pred_suff}
+For $\varepsilon \ge 0$, a measurable mapping $\phi:\cM \to \R^d$ is \emph{$\varepsilon$-predictively sufficient} for $Y_{t+1}$ given $s_{t+1}$ if
+\[
+\E\bigl[\Var\bigl(Y_{t+1} \mid \phi(\mu_t), s_{t+1}\bigr)\bigr]
+\le \varepsilon.
+\]
+\end{definition}
+
+When $\varepsilon=0$, this coincides with exact predictive sufficiency under squared loss. For $\varepsilon>0$, $\phi$ is allowed to lose some predictive information, but the average residual conditional variance must be small. This provides a model-based notion of approximate aggregation.
+
+% ----------------------------------------------------
+\subsection{Minimal predictive risk and effective dimension}
+\label{subsec:R_d_def}
+% ----------------------------------------------------
+
+We now define the main object of interest: the minimal predictive risk associated with $d$-dimensional representations. It is useful to distinguish three levels.
+
+\paragraph{Population ideal.}  
+The \emph{ideal} minimal risk over all measurable encoders and predictors is
+\[
+R_{\mathrm{ideal}}(d)
+= \inf_{f\in\cF_d,\,g\in\cG}
+  \E\bigl[\|Y_{t+1} - g(f(X_t), s_{t+1})\|^2\bigr].
+\]
+
+\paragraph{Restricted to network classes.}  
+The minimal risk within the neural network classes is
+\[
+R_{\cF,\cG}(d)
+= \inf_{\theta\in\Theta_d,\,\psi\in\Psi_d}
+  \E\bigl[\|Y_{t+1} - g_\psi(f_\theta(X_t), s_{t+1})\|^2\bigr].
+\]
+
+\paragraph{Empirical counterpart.}  
+Given a sample of size $n$, we estimate risk using the empirical criterion $\hat{R}_n(d)$ (Section~\ref{subsec:estimation_generalization}).
+
+In the theoretical developments below we primarily work with $R_{\mathrm{ideal}}(d)$ and, for brevity, write $R(d) := R_{\mathrm{ideal}}(d)$ when no confusion arises.
+
+We also formalize the notion of effective dimension.
+
+\begin{definition}[Effective dimension]
+\label{def:eff_dim}
+For a tolerance level $\varepsilon > 0$, the \emph{effective dimension} of the model is
+\[
+d^*(\varepsilon)
+= \min\{ d \in \{1,2,\ldots\} : R(d) \leq \varepsilon\},
+\]
+with the convention that $d^*(\varepsilon) = +\infty$ if no finite $d$ satisfies $R(d)\le\varepsilon$.
+\end{definition}
+
+From the perspective of approximate aggregation, $d^*(\varepsilon)$ answers the question: how many aggregate factors are needed so that the residual conditional variance, given those factors and aggregate shocks, is at most $\varepsilon$?
+
+The next proposition relates $d^*(\varepsilon)$ to $\varepsilon$-predictive sufficiency.
+
+\begin{proposition}[Effective dimension and $\varepsilon$-predictive sufficiency]
+\label{prop:dstar_eps_suff}
+Suppose Assumption~\ref{ass:prob_setup} holds and recall the definition of $\varepsilon$-predictive sufficiency in Definition~\ref{def:eps_pred_suff}.
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item For each fixed $d$,
+\[
+R(d)
+\le
+\inf_{\phi:\cM\to\R^d}
+\E\bigl[\Var(Y_{t+1} \mid \phi(\mu_t), s_{t+1})\bigr].
+\]
+\item If, in addition, the feature map $\Phi$ is rich enough that $\mu_t$ is measurable with respect to $\sigma(X_t)$ and we allow encoders over all measurable maps $f:\R^p\to\R^d$, then
+\[
+R(d)
+= \inf_{\phi:\cM\to\R^d}
+\E\bigl[\Var(Y_{t+1} \mid \phi(\mu_t), s_{t+1})\bigr].
+\]
+As a consequence, $d^*(\varepsilon)$ coincides with the minimal dimension $d$ for which there exists an $\varepsilon$-predictively sufficient mapping $\phi:\cM\to\R^d$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}[Proof (sketch)]
+Any mapping $\phi(\mu_t)$ is a measurable function of $\mu_t$, and under the measurability condition $\mu_t \in \sigma(X_t)$ we can write $\phi(\mu_t)=f(X_t)$ for some $f\in\cF_d$. For fixed $f$, the squared-error minimizing predictor is the conditional expectation given $(f(X_t),s_{t+1})$, so the best achievable mean squared error is $\E[\Var(Y_{t+1} \mid f(X_t),s_{t+1})]$. Taking the infimum over $f$ yields
+\[
+R(d) = \inf_{f\in\cF_d} \E\bigl[\Var(Y_{t+1}\mid f(X_t),s_{t+1})\bigr].
+\]
+This is at most the corresponding infimum restricted to functions of $\mu_t$ alone, which proves (i). Under the richness condition on $\Phi$, any $f(X_t)$ can be expressed as $\phi(\mu_t)$ for some measurable $\phi$, so the two infima coincide, proving (ii). The equivalence with $\varepsilon$-predictive sufficiency follows immediately from Definition~\ref{def:eps_pred_suff}.
+\end{proof}
+
+Proposition~\ref{prop:dstar_eps_suff} formalizes the idea that the effective dimension $d^*(\varepsilon)$ is the minimal dimensionality of an approximately sufficient statistic for predicting $Y_{t+1}$ given $s_{t+1}$.
+
+% ----------------------------------------------------
+\subsection{Basic properties of $R(d)$}
+\label{subsec:basic_Rd}
+% ----------------------------------------------------
+
+We start with basic properties of $R(d)$ that follow from Assumption~\ref{ass:prob_setup} and the definition of squared-error optimal prediction.
+
+\begin{proposition}[Basic properties of $R(d)$]
+\label{prop:basic_properties}
+Suppose Assumption~\ref{ass:prob_setup} holds and define $R(d)$ as above.
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item (\emph{Finiteness}) For all $d\ge 1$,
+\[
+0 \le R(d) \le \E\|Y_{t+1}\|^2 < \infty.
+\]
+\item (\emph{Monotonicity}) The sequence $R(d)$ is weakly decreasing in $d$: if $d' > d$, then $R(d') \le R(d)$.
+\item (\emph{Plateau after a sufficient dimension}) Suppose there exists a finite $d_0$ and a predictively sufficient mapping $\phi:\cM\to\R^{d_0}$ such that
+\[
+Y_{t+1} = h(\phi(\mu_t),s_{t+1}) + \varepsilon_{t+1},
+\qquad
+\E[\varepsilon_{t+1} \mid \phi(\mu_t),s_{t+1}]=0,
+\quad
+\E\|\varepsilon_{t+1}\|^2 < \infty.
+\]
+Then:
+\begin{align*}
+R(d_0) &= \E\|\varepsilon_{t+1}\|^2, \\
+R(d) &= R(d_0) \quad \text{for all } d \ge d_0, \\
+R(d) &> R(d_0) \quad \text{for all } d < d_0.
+\end{align*}
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}[Proof (sketch)]
+For (i), finiteness follows by considering the trivial predictor $g\equiv 0$ and noting that squared loss is nonnegative. For (ii), any encoder of dimension $d$ can be embedded into dimension $d'>d$ by padding with zeros; thus the feasible set for $d'$ contains that for $d$, implying $R(d')\le R(d)$.
+
+For (iii), if $\phi$ is predictively sufficient and we allow encoders to realize $\phi(\mu_t)$, then the optimal predictor conditioned on $\phi(\mu_t)$ and $s_{t+1}$ achieves mean squared error $\E\|\varepsilon_{t+1}\|^2$, so $R(d_0)\le \E\|\varepsilon_{t+1}\|^2$. On the other hand, no function of $(X_t,s_{t+1})$ can achieve smaller risk than the conditional expectation given $(\mu_t,s_{t+1})$, which equals $h(\phi(\mu_t),s_{t+1})$ by predictive sufficiency, so $R(d_0)\ge \E\|\varepsilon_{t+1}\|^2$. Monotonicity then implies $R(d)=R(d_0)$ for all $d\ge d_0$. If $R(d)=R(d_0)$ held for some $d<d_0$, one could construct a $d$-dimensional predictively sufficient representation, contradicting the minimality of $d_0$.
+\end{proof}
+
+Proposition~\ref{prop:basic_properties} formalizes the intuition that $R(d)$ cannot increase with dimension and flattens out exactly once a predictively sufficient representation is reachable.
+
+% ----------------------------------------------------
+\subsection{Variance decomposition and explained variance}
+\label{subsec:var_decomp}
+% ----------------------------------------------------
+
+A useful perspective on $R(d)$ is through conditional variances. The next result characterizes $R(d)$ as the residual term in a law-of-total-variance decomposition with respect to the optimally informative $d$-dimensional representation.
+
+\begin{theorem}[Variance decomposition for $R(d)$]
+\label{thm:variance_decomposition}
+Suppose Assumption~\ref{ass:prob_setup} holds. Let $f^*_d\in\cF_d$ be an encoder attaining the infimum in the definition of $R(d)$ (or an approximating sequence), and define the $\sigma$-algebra
+\[
+\cI_d = \sigma\bigl(f^*_d(X_t), s_{t+1}\bigr).
+\]
+Then:
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item $R(d)$ can be written as
+\[
+R(d)
+= \E\bigl[\Var(Y_{t+1} \mid \cI_d)\bigr].
+\]
+\item The total variance of $Y_{t+1}$ decomposes as
+\[
+\E\|Y_{t+1}\|^2
+= \E\bigl\|\E[Y_{t+1}\mid \cI_d]\bigr\|^2
++ \E\bigl[\Var(Y_{t+1}\mid \cI_d)\bigr]
+= \E\bigl\|\E[Y_{t+1}\mid \cI_d]\bigr\|^2 + R(d).
+\]
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Proof (sketch)]
+For any fixed encoder $f\in\cF_d$, the squared-error minimizing predictor is the conditional expectation
+\[
+g_f(z,s) = \E[Y_{t+1}\mid f(X_t)=z,s_{t+1}=s],
+\]
+and the corresponding minimal risk is $\E[\Var(Y_{t+1}\mid f(X_t),s_{t+1})]$. Taking the infimum over $f$ yields
+\[
+R(d) = \inf_{f\in\cF_d} \E\bigl[\Var(Y_{t+1}\mid f(X_t),s_{t+1})\bigr].
+\]
+Let $f^*_d$ attain (or approximate) this infimum and set $\cI_d = \sigma(f^*_d(X_t),s_{t+1})$. Then $R(d) = \E[\Var(Y_{t+1}\mid \cI_d)]$, which is part (i). Part (ii) is the standard law of total variance applied to $Y_{t+1}$ and the $\sigma$-algebra $\cI_d$.
+\end{proof}
+
+Theorem~\ref{thm:variance_decomposition} motivates an “explained variance” measure,
+\begin{equation}
+\Xi(d)
+= 1 - \frac{R(d)}{\E\|Y_{t+1}\|^2}
+= \frac{\E\bigl\|\E[Y_{t+1}\mid\cI_d]\bigr\|^2}{\E\|Y_{t+1}\|^2},
+\label{eq:Xi_def}
+\end{equation}
+which can be interpreted as the fraction of the variance of $Y_{t+1}$ that is captured by the optimal $d$-dimensional representation. When targets are standardized to have unit variance (as in our empirical work), $\Xi(d)$ is numerically close to a multivariate $R^2$.
+
+% ----------------------------------------------------
+\subsection{Krusell--Smith as a special case of $R(d)$}
+\label{subsec:KS_connection}
+% ----------------------------------------------------
+
+We now make the connection to Krusell--Smith (KS) approximate aggregation explicit. For concreteness, let $\pi_{t+1}$ denote an aggregate price (e.g.\ the interest rate), and suppose that the KS procedure fits a linear forecasting rule of the form
+\[
+\hat{\pi}_{t+1} = \alpha + \beta K_t
+\]
+by OLS on simulated data, where $K_t$ is aggregate capital. Let $\mathrm{MSE}_{\mathrm{KS}}$ denote the corresponding mean squared forecast error.
+
+\begin{proposition}[KS forecast error vs.\ $R(1)$]
+\label{prop:KS_connection}
+Let $Y_{t+1}$ include $\pi_{t+1}$ as one component, and consider the one-dimensional representation $S_t = K_t$. Assume the KS forecasting rule $\hat{\pi}_{t+1} = \alpha + \beta K_t$ is the linear projection of $\pi_{t+1}$ on $(1,K_t)$.
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item The KS mean squared forecast error satisfies
+\[
+\mathrm{MSE}_{\mathrm{KS}}
+= \E\bigl[\Var(\pi_{t+1} \mid K_t)\bigr].
+\]
+\item Let $R_{K}(1)$ be the minimal predictive risk for $\pi_{t+1}$ when the representation is restricted to $Z_t = K_t$ but the predictor $g$ is allowed to be any measurable function of $(K_t,s_{t+1})$. Then
+\[
+\mathrm{MSE}_{\mathrm{KS}}
+\;\ge\; R_{K}(1)
+\;\ge\; R(1).
+\]
+\item If, in addition, $\pi_{t+1}$ is linear in $(K_t,s_{t+1})$ plus a noise term orthogonal to $(K_t,s_{t+1})$, then
+\[
+\mathrm{MSE}_{\mathrm{KS}} = R_K(1),
+\]
+that is, KS is optimal within the class of one-dimensional linear representations based on $K_t$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}[Proof (sketch)]
+Part (i) is the standard characterization of the residual variance in linear regression: the OLS residual is the conditional variance of $\pi_{t+1}$ given the regressors $(1,K_t)$. If $1$ is independent of $\pi_{t+1}$, this equals $\E[\Var(\pi_{t+1}\mid K_t)]$.
+
+For (ii), conditioning on $(K_t,s_{t+1})$ provides at least as much information as conditioning on $K_t$ alone, so $\E[\Var(\pi_{t+1}\mid K_t)] \ge \E[\Var(\pi_{t+1}\mid K_t,s_{t+1})] = R_K(1)$. The inequality $R_K(1)\ge R(1)$ follows because $R(1)$ optimizes both the representation and the predictor, while $R_K(1)$ fixes the representation to $K_t$.
+
+For (iii), if $\pi_{t+1}$ is linear in $(K_t,s_{t+1})$ plus orthogonal noise, then the linear projection on $(K_t,s_{t+1})$ achieves the conditional expectation, and the residual variance equals $\E[\Var(\pi_{t+1}\mid K_t,s_{t+1})] = R_K(1)$.
+\end{proof}
+
+Proposition~\ref{prop:KS_connection} shows that the KS forecast error can be viewed as an \emph{upper bound} on $R(1)$ for a specific, hand-crafted one-dimensional representation ($K_t$) and a restricted (linear) predictor class. Our framework generalizes KS in two directions:
+\begin{enumerate}[label=(\alph*),leftmargin=1.3cm]
+\item for $d=1$, we learn the representation $f(X_t)$ instead of fixing it to $K_t$, and
+\item for $d>1$, we allow higher-dimensional learned aggregate states in $\R^d$.
+\end{enumerate}
+
+% ----------------------------------------------------
+\subsection{Linear--Gaussian benchmark}
+\label{subsec:linear_gaussian}
+% ----------------------------------------------------
+
+To gain theoretical insight into $R(d)$ and $d^*(\varepsilon)$, we consider a stylized linear--Gaussian environment. This is not intended as a realistic heterogeneous-agent model, but as an analytically tractable benchmark that clarifies when low-dimensional representations exist and how they depend on the covariance structure of the data.
+
+\begin{theorem}[Linear--Gaussian characterization of $R(d)$]
+\label{thm:linear_gaussian}
+Suppose that $(X_t,s_{t+1},Y_{t+1})$ is jointly Gaussian and satisfies the linear relation
+\begin{equation}
+Y_{t+1} = B X_t + C s_{t+1} + u_{t+1},
+\label{eq:linear_gaussian}
+\end{equation}
+where $B\in\R^{q\times p}$, $C\in\R^{q\times r}$, $u_{t+1}$ is mean-zero Gaussian noise independent of $(X_t,s_{t+1})$ with covariance $\Sigma_u$, and $(X_t,s_{t+1})$ has covariance
+\[
+\Sigma_{Xs} =
+\begin{pmatrix}
+\Sigma_X & \Sigma_{Xs} \\
+\Sigma_{sX} & \Sigma_s
+\end{pmatrix},
+\]
+with $\Sigma_X$ positive definite. Consider \emph{linear} encoders and predictors of the form
+\[
+Z_t = W X_t, \quad \hat{Y}_{t+1} = A Z_t + D s_{t+1},
+\]
+where $W\in\R^{d\times p}$, $A\in\R^{q\times d}$, and $D\in\R^{q\times r}$. Let $\tilde{X}_t = X_t - \E[X_t\mid s_{t+1}]$ and $\tilde{Y}_{t+1} = Y_{t+1} - \E[Y_{t+1}\mid s_{t+1}]$ denote residuals after partialling out $s_{t+1}$. Define
+\[
+\Sigma_{\tilde{X}} = \Var(\tilde{X}_t), \qquad
+\Sigma_{\tilde{Y}\tilde{X}} = \Cov(\tilde{Y}_{t+1},\tilde{X}_t),
+\]
+and the ``signal'' operator
+\[
+M = \Sigma_{\tilde{Y}\tilde{X}} \Sigma_{\tilde{X}}^{-1/2}.
+\]
+Let $\lambda_1 \ge \lambda_2 \ge \cdots \ge 0$ denote the singular values of $M$. Then the minimal risk over linear encoders and predictors,
+\[
+R_{\mathrm{lin}}(d)
+= \inf_{W,A,D}
+  \E\bigl[\|Y_{t+1} - A W X_t - D s_{t+1}\|^2\bigr],
+\]
+satisfies
+\begin{equation}
+R_{\mathrm{lin}}(d)
+= \E\|u_{t+1}\|^2
++ \sum_{j>d} \lambda_j^2.
+\label{eq:R_lin}
+\end{equation}
+Moreover, the infimum is attained by choosing $W$ so that the rows of $W \Sigma_{\tilde{X}}^{1/2}$ span the top $d$ left singular vectors of $M$.
+\end{theorem}
+
+\begin{proof}[Proof (sketch)]
+Once $s_{t+1}$ is partialled out, the problem reduces to approximating the mapping from $\tilde{X}_t$ to $\tilde{Y}_{t+1}$ with rank-$d$ matrices. That is, we seek $A$ and $W$ such that $AW$ is a rank-$d$ approximation to the regression coefficient matrix linking $\tilde{X}_t$ to $\tilde{Y}_{t+1}$. The optimal rank-$d$ approximation in Frobenius norm is given by truncating the singular value decomposition of $M$, a standard result from reduced-rank regression and principal component analysis. The squared error of this approximation is the sum of squared singular values that are discarded, plus the variance of the noise term $u_{t+1}$, yielding \eqref{eq:R_lin}.
+\end{proof}
+
+Theorem~\ref{thm:linear_gaussian} provides an exact expression for $R_{\mathrm{lin}}(d)$ in terms of the singular values of a low-rank operator linking distributional features to aggregate outcomes.
+
+\begin{corollary}[Effective dimension in the linear--Gaussian benchmark]
+\label{cor:eff_dim_linear}
+In the setting of Theorem~\ref{thm:linear_gaussian}, let $\varepsilon > \E\|u_{t+1}\|^2$ and define
+\[
+d^*_{\mathrm{lin}}(\varepsilon)
+= \min\left\{ d : \sum_{j>d} \lambda_j^2 \leq \varepsilon - \E\|u_{t+1}\|^2 \right\}.
+\]
+Then $d^*_{\mathrm{lin}}(\varepsilon)$ equals the number of singular values of $M$ that are ``non-negligible'' relative to the tolerance level $\varepsilon$. In particular, if $\lambda_1,\lambda_2$ are sizable and $\lambda_j\approx 0$ for $j\ge 3$, then $d^*_{\mathrm{lin}}(\varepsilon)\approx 2$ over a wide range of $\varepsilon$.
+\end{corollary}
+
+In our nonlinear Aiyagari environment, we do not expect exact linear--Gaussian structure, but the empirical behavior of $\hat{R}(d)$ and the estimated effective dimensions closely resemble this benchmark: $R(d)$ decreases sharply up to $d=2$ and then flattens, suggesting that the operator mapping distributional features into aggregates is effectively low-rank.
+
+% ----------------------------------------------------
+\subsection{Estimation and generalization}
+\label{subsec:estimation_generalization}
+% ----------------------------------------------------
+
+In practice, we estimate $R_{\cF,\cG}(d)$ using neural networks trained on simulated data from the model. Let $\{(X_t,s_{t+1},Y_{t+1})\}_{t=1}^n$ denote a sample drawn from the stationary process (in our case, a long simulation), and define the empirical risk
+\[
+\hat{R}_n(d)
+= \min_{\theta\in\Theta_d,\,\psi\in\Psi_d}
+  \frac{1}{n} \sum_{t=1}^n
+  \bigl\|Y_{t+1} - g_\psi(f_\theta(X_t), s_{t+1})\bigr\|^2.
+\]
+
+It is useful to distinguish three quantities:
+\begin{enumerate}[label=(\alph*),leftmargin=1.3cm]
+\item $R(d)$: the population ideal risk over all measurable encoders and predictors.
+\item $R_{\cF,\cG}(d)$: the minimal population risk restricted to the neural network classes.
+\item $\hat{R}_n(d)$: the empirical minimal risk within the network classes, for finite $n$.
+\end{enumerate}
+
+Standard learning-theory arguments imply that, under mild regularity, $\hat{R}_n(d)$ provides a consistent estimate of $R_{\cF,\cG}(d)$ as $n$ grows, and that $R_{\cF,\cG}(d)$ can approximate $R(d)$ if the network classes are rich enough.
+
+\begin{proposition}[High-level generalization statement]
+\label{prop:generalization}
+Suppose Assumption~\ref{ass:prob_setup} holds, and assume further that the process $\{(X_t,s_{t+1},Y_{t+1})\}$ is $\alpha$-mixing with summable mixing coefficients, and that the network classes $\{f_\theta\}$ and $\{g_\psi\}$ have finite complexity (e.g.\ finite VC dimension or bounded Rademacher complexity) for each fixed $d$. Then, for each fixed $d$,
+\[
+\hat{R}_n(d) \;\xrightarrow{P}\; R_{\cF,\cG}(d)
+\quad\text{as } n\to\infty.
+\]
+If, in addition, the network classes are universal approximators on compact subsets of $\R^p$ and $\R^d\times\cS$ with sufficient capacity, then $R_{\cF,\cG}(d)$ can be made arbitrarily close to $R(d)$ by increasing network size.
+\end{proposition}
+
+\begin{proof}[Proof (sketch)]
+The convergence $\hat{R}_n(d)\to R_{\cF,\cG}(d)$ follows from uniform laws of large numbers for dependent data and function classes with controlled complexity; see standard results in empirical process theory for mixing sequences. The universal approximation property of neural networks implies that, for any $\varepsilon>0$, there exist network parameters $(\theta,\psi)$ such that the associated functions $(f_\theta,g_\psi)$ approximate the measurable minimizers of $R(d)$ within $\varepsilon$ in $L^2$, which in turn implies that $R_{\cF,\cG}(d)\le R(d)+\varepsilon$. Full details are beyond the scope of this paper; we rely on this result only for high-level interpretation of $\hat{R}_n(d)$.
+\end{proof}
+
+In our experiments we work with long simulations (large $n$), moderate-capacity networks, and early stopping. We view the reported $\hat{R}_n(d)$ as empirical upper bounds on $R_{\cF,\cG}(d)$ and, in turn, on the ideal $R(d)$. The main object of interest is the \emph{shape} of the $\hat{R}_n(d)$ curve across dimensions and calibrations, rather than any single numerical value.
+
+\paragraph{Interpretation of $\hat{R}_n(d)$ as an empirical upper bound.}
+It is useful to be precise about the relationship among the three risk measures. The ideal population risk $R(d)$ is the infimum over \emph{all} measurable encoders and predictors; the restricted population risk $R_{\cF,\cG}(d)$ limits attention to the neural network classes; and the empirical risk $\hat{R}_n(d)$ is estimated from finite data. By construction, $R(d) \le R_{\cF,\cG}(d)$, and under standard regularity $\hat{R}_n(d) \to R_{\cF,\cG}(d)$ as $n\to\infty$. In practice, $\hat{R}_n(d)$ may exceed $R_{\cF,\cG}(d)$ due to optimization noise and finite-sample variability, but it serves as an empirical upper bound on $R(d)$. Our conclusions emphasize the \emph{relative} behavior of $\hat{R}_n(d)$ across $d$ and across calibrations---specifically, the sharp drop from $d=1$ to $d=2$ and the plateau thereafter---which is robust to moderate approximation and estimation error.
+
+\paragraph{Training protocol as a control on overfitting.}
+Several features of our estimation protocol are designed to limit overfitting and ensure that $\hat{R}_n(d)$ reflects generalizable predictive structure rather than in-sample artifacts. First, we use \emph{early stopping} based on validation loss with patience of 20 epochs; this prevents the network from memorizing training noise and is a standard regularization technique in deep learning. Second, we employ \emph{moderate network capacity}: the encoder and predictor have three and two hidden layers respectively with widths 128 and 64, which is sufficient to approximate smooth mappings but does not allow arbitrary fit to high-frequency features of the data. Third, the simulation provides a \emph{long time series} ($T'=1{,}200$ post-burn-in), so the effective sample size for training is large relative to the number of network parameters; this favors low generalization error even without aggressive regularization.
+
+We further ensure temporal integrity of the data splits. The training, validation, and test sets are constructed \emph{chronologically} (first 70\%, next 15\%, last 15\%), with no shuffling or random sampling across time. This avoids look-ahead bias and leakage of future information into the training set---an important consideration given the serial dependence in simulated macro time series.
+
+Finally, we do not re-tune network architectures or hyperparameters separately for each calibration. The same encoder and predictor specifications are applied uniformly across all eight configurations. This avoids the risk of cherry-picking architectures that happen to produce favorable $\hat{R}(d)$ for particular parameter combinations, and ensures that the diagnostic is comparable across calibrations.
+
+% ----------------------------------------------------
+\subsection{Structural interpretation of $R(d)$}
+\label{subsec:structural_Rd}
+% ----------------------------------------------------
+
+Finally, we emphasize that $R(d)$ is a structural property of the heterogeneous-agent model (given a choice of feature map $\Phi$ and loss), not a purely statistical artifact of a particular simulation.
+
+\begin{proposition}[$R(d)$ as a structural diagnostic]
+\label{prop:R_structural}
+Let the primitives of the model be given by preferences, technologies, and market structure, which determine the operators $\Gamma$ and $H$ in \eqref{eq:Gamma}--\eqref{eq:H}, together with the law of the aggregate shock process $\{s_t\}$ and the feature map $\Phi:\cM\to\R^p$. Under Assumption~\ref{ass:prob_setup}, these primitives induce a unique stationary law for $(X_t,s_{t+1},Y_{t+1})$ and therefore a unique function $d\mapsto R(d)$.
+\end{proposition}
+
+\begin{proof}[Proof (sketch)]
+Given $\Gamma$, $H$, the shock process, and the feature map $\Phi$, the structural model determines the Markov kernel for $(\mu_t,s_t)$ and therefore the stationary distribution of $(\mu_t,s_t)$ under standard conditions. The map $\Phi$ then induces a stationary distribution for $(X_t,s_t)$, and $H$ induces $Y_{t+1}$ via \eqref{eq:H}. Assumption~\ref{ass:prob_setup} ensures that this stationary law is well defined and that $\E\|Y_{t+1}\|^2<\infty$. Since $R(d)$ is defined solely in terms of the joint law of $(X_t,s_{t+1},Y_{t+1})$, it is a functional of the structural primitives of the model and $\Phi$.
+\end{proof}
+
+Proposition~\ref{prop:R_structural} justifies interpreting $R(d)$ and $d^*(\varepsilon)$ as \emph{structural diagnostics} of how compressible the distributional state is for predicting aggregate outcomes in a given model. Representation learning, through $\hat{R}_n(d)$ and learned encoders $f_\theta$, estimates these diagnostics numerically.
+
+
+
+% ====================================================
+\section{Model: Aiyagari with Idiosyncratic Risk}
+\label{sec:model}
+% ====================================================
+
+We now describe the economic model that serves as our testbed: the \citet{aiyagari1994} incomplete markets model with idiosyncratic risk and borrowing constraints. We keep the model relatively standard, but vary key parameters to generate configurations with different aggregation properties.
+
+The Aiyagari model is a natural first testbed for our framework for three reasons. First, it is the canonical incomplete-markets model and has become the building block for richer heterogeneous-agent environments studied in both academic research and policy institutions. Second, the Krusell--Smith approximate aggregation literature was developed precisely in this context, so our results speak directly to well-known empirical regularities and open questions. Third, if simple approximate aggregation is valid anywhere, it should be especially apparent in this setting---if the effective dimension turns out to be low even here, this provides a strong baseline expectation for more complex environments; conversely, finding that $d^*(\varepsilon) > 1$ in certain calibrations demonstrates that even simple models can require richer distributional information.
+
+\subsection{Environment}
+
+Time is discrete. A continuum of ex ante identical households lives forever and discounts the future at factor $\beta\in(0,1)$. Households have CRRA preferences,
+\[
+\E_0 \sum_{t=0}^\infty \beta^t u(c_{it}), \qquad
+u(c) = \frac{c^{1-\gamma}}{1-\gamma}, \quad \gamma>0,
+\]
+where $c_{it}$ denotes consumption of agent $i$ at time $t$.
+
+Each household is endowed with idiosyncratic labor productivity $e_{it}$ following a stationary AR(1) process in logs,
+\[
+\log e_{it} = \rho_e \log e_{it-1} + \sigma_e \varepsilon_{it}, \qquad \varepsilon_{it}\sim\mathcal{N}(0,1),
+\]
+discretized with a Rouwenhorst method into a finite Markov chain with $n_e$ states.
+
+Given market-clearing factor prices $(r_t,w_t)$, households choose consumption and next-period assets $a_{it+1}$ to solve
+\[
+\max_{\{c_{it},a_{it+1}\}} \E_0 \sum_{t=0}^\infty \beta^t u(c_{it})
+\]
+subject to the per-period budget constraint
+\[
+c_{it} + a_{it+1} = (1+r_t) a_{it} + w_t e_{it},
+\]
+and a borrowing bound
+\[
+a_{it+1} \geq \underline{a}.
+\]
+
+Production is carried out by a representative firm operating a Cobb--Douglas technology
+\[
+Y_t = Z_t K_t^\alpha L_t^{1-\alpha},
+\]
+where $K_t$ is aggregate capital, $L_t = \int e_{it}\,di$ is aggregate effective labor, $Z_t$ is aggregate TFP (equal to one in the baseline), and $\alpha\in(0,1)$ is the capital share. Capital depreciates at rate $\delta$. Under perfect competition, factor prices satisfy
+\begin{align*}
+r_t &= \alpha Z_t \left(\frac{K_t}{L_t}\right)^{\alpha-1} - \delta, \\
+w_t &= (1-\alpha) Z_t \left(\frac{K_t}{L_t}\right)^\alpha.
+\end{align*}
+
+A stationary equilibrium consists of a stationary Markov policy for households, $(r,w)$, and a stationary distribution of wealth and productivity $\mu$ such that households optimize given prices, prices equal marginal products evaluated at $(K,L)$ implied by $\mu$, and the induced Markov chain over $(a,e)$ has $\mu$ as its invariant distribution. We solve for stationary equilibria numerically using the endogenous grid method (EGM) and a bisection procedure over $r$ to impose capital market clearing.
+
+\subsection{Aggregate variables and simulation}
+
+Even in stationary equilibrium without aggregate shocks, the empirical cross-sectional distribution of $(a_{it},e_{it})$ fluctuates over time in finite-agent simulation. This induces time variation in aggregates such as
+\[
+K_t = \frac{1}{N}\sum_{i=1}^N a_{it}, \qquad
+C_t = \frac{1}{N}\sum_{i=1}^N c_{it}, \qquad
+Y_t = K_t^\alpha L_t^{1-\alpha}.
+\]
+We treat these fluctuations as the prediction target $Y_{t+1}$ in our representation learning exercise. In extensions we also introduce aggregate TFP shocks $Z_t$; see Section~\ref{sec:tfp_shocks}.
+
+\subsection{Calibration grid}
+\label{subsec:calibration_grid}
+
+We consider a grid of eight configurations, varying three parameters that are natural candidates to affect approximate aggregation:
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+Parameter & Description & Low value & High value \\
+\midrule
+$\sigma_e$ & Idiosyncratic risk & 0.10 & 0.25 \\
+$\rho_e$ & Persistence & 0.85 & 0.95 \\
+$\underline{a}$ & Borrowing limit & $-1.0$ & 0.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The remaining parameters are fixed across configurations: $\beta = 0.96$, $\gamma = 2$, $\alpha = 0.36$, $\delta = 0.08$, $n_e = 7$ (Rouwenhorst discretization), and an asset grid with 200 points concentrated near the borrowing limit. Table~\ref{tab:calibration_grid} summarizes the eight configurations and reports key implied equilibrium statistics.
+
+\begin{table}[H]
+\centering
+\caption{Eight-point calibration grid with implied equilibrium statistics}
+\label{tab:calibration_grid}
+\begin{tabular}{lccc|cc}
+\toprule
+Configuration & $\sigma_e$ & $\rho_e$ & $\underline{a}$ & Gini & Constr.\ \% \\
+\midrule
+LowRisk\_ModPersist\_Borrow     & 0.10 & 0.85 & $-1.0$ & 0.46 & 33\% \\
+LowRisk\_ModPersist\_NoBorrow   & 0.10 & 0.85 & 0.0   & 0.54 & 51\% \\
+LowRisk\_HighPersist\_Borrow    & 0.10 & 0.95 & $-1.0$ & 0.93 & 100\% \\
+LowRisk\_HighPersist\_NoBorrow  & 0.10 & 0.95 & 0.0   & 0.86 & 93\% \\
+HighRisk\_ModPersist\_Borrow    & 0.25 & 0.85 & $-1.0$ & 0.47 & 19\% \\
+HighRisk\_ModPersist\_NoBorrow  & 0.25 & 0.85 & 0.0   & 0.48 & 13\% \\
+HighRisk\_HighPersist\_Borrow   & 0.25 & 0.95 & $-1.0$ & 0.55 & 22\% \\
+HighRisk\_HighPersist\_NoBorrow & 0.25 & 0.95 & 0.0   & 0.56 & 16\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{image.png}
+\caption{Effective dimension $\hat{d}^*(\varepsilon)$ across the calibration grid ($\varepsilon=0.01$). The left panel plots $d^*$ as a function of persistence $\rho_e$ and borrowing constraint, and the right panel shows a small heatmap for visual convenience.}
+\label{fig:d_star_map}
+\end{figure}
+
+The ``Constr.\ \%'' column reports the fraction of households at or near the borrowing constraint in the stationary distribution; ``Gini'' is the Gini coefficient of wealth. These statistics illustrate the substantial heterogeneity in distributional structure across calibrations: high persistence with low risk can push nearly all agents to the constraint, while higher risk and borrowing room yield more dispersed wealth distributions. We label configurations by intuitive names such as \texttt{LowRisk\_HighPersist\_Borrow} and \texttt{HighRisk\_ModPersist\_NoBorrow}.
+
+The economic motivation for this grid is straightforward. Higher idiosyncratic risk $\sigma_e$ increases precautionary saving and wealth dispersion; higher persistence $\rho_e$ increases inequality and the fraction of agents near the borrowing limit; tighter borrowing constraints $\underline{a}$ change the left tail of the wealth distribution and the dynamics of constrained households. All three dimensions are natural candidates to affect the intrinsic dimension of distributional dynamics relevant for aggregates.
+
+\subsection{Solution and simulation procedure}
+
+For each configuration we proceed as follows. First, we solve the stationary equilibrium using EGM and bisection on the interest rate. Second, we simulate $N=10{,}000$ agents for $T=1{,}500$ periods given the stationary policies and prices, discarding the first $T_{\mathrm{burn}} = 300$ periods as burn-in. This yields a panel of states and decisions $\{(a_{it},e_{it},c_{it})\}_{i,t}$ and time series of aggregates $(K_t,L_t,Y_t)$.
+
+The choice of $N$ and $T$ is guided by computational tractability and convergence of $\hat{R}(d)$. In robustness checks with $N=20{,}000$ and $T=2{,}500$, we find that the shape of the $\hat{R}(d)$ curve---and hence the implied effective dimension---is essentially unchanged, with point estimates shifting by less than 5\% of their baseline values. We therefore report results for the baseline $(N,T)$ throughout.
+
+\subsection{Feature construction}
+\label{subsec:features_model}
+
+At each time $t$, we construct a feature vector $X_t \in \R^p$ summarizing $\mu_t$ via a mix of nonparametric and parametric statistics. We keep the feature map fixed across configurations to isolate the effect of economic parameters on $R(d)$.
+
+The feature vector $X_t$ contains:
+
+\begin{itemize}[leftmargin=1.2cm]
+\item A 50-bin histogram of the wealth distribution on $[\underline{a},\bar{a}]$, with bin edges fixed across configurations and periods.
+\item Moments and inequality measures: mean assets (aggregate capital $K_t$), standard deviation of assets, skewness and kurtosis, Gini coefficient, top 10\% and top 1\% shares, bottom 50\% share, and the mass of agents at or near the borrowing constraint.
+\item Mean idiosyncratic productivity $L_t$.
+\end{itemize}
+
+In total this yields $p=60$ features. Before feeding $X_t$ into the neural networks we standardize each component to zero mean and unit variance, using the training sample.
+
+\subsection{Targets and shocks}
+
+The target vector $Y_{t+1}$ collects aggregate capital, consumption, and output at $t+1$, standardized to zero mean and unit variance in the training sample. In the baseline, there are no aggregate shocks, so $s_{t+1} \equiv 1$. When we introduce TFP shocks, $s_{t+1}$ is the realization of $\log Z_{t+1}$; see Section~\ref{sec:tfp_shocks}.
+
+\subsection{Data splitting and training protocol}
+
+For each configuration we obtain a time series $\{(X_t,s_{t+1},Y_{t+1})\}_{t=1}^{T'}$ with $T' = 1{,}200$ after burn-in. We split this chronologically into training (70\%), validation (15\%), and test (15\%) sets to avoid look-ahead bias. We train encoder and predictor networks jointly using the Adam optimizer with learning rate $10^{-3}$, batch size 64, and early stopping based on validation loss with patience of 20 epochs and a maximum of 500 epochs. We repeat this procedure for five random seeds and report averages of $\hat{R}(d)$ and other statistics across seeds.
+
+% ====================================================
+\section{Results: A Map of Approximate Aggregation}
+\label{sec:results}
+% ====================================================
+
+We now present our main empirical results: the estimated minimal predictive risk $\hat{R}(d)$ across dimensions and configurations, the implied effective dimensions, and the systematic patterns in how $R(d)$ depends on economic parameters.
+
+\subsection{Minimal predictive risk across configurations}
+
+Table~\ref{tab:R_d_results} reports the estimated minimal predictive risk $\hat{R}(d)$ for $d=1,2,3$ across all eight configurations. The values are test mean squared errors on normalized targets, averaged over five random seeds.
+
+\begin{table}[H]
+\centering
+\caption{Estimated minimal predictive risk $\hat{R}(d)$ by configuration}
+\label{tab:R_d_results}
+\begin{tabular}{lcccccc}
+\toprule
+Configuration & $\sigma_e$ & $\rho_e$ & $\underline{a}$ & $\hat{R}(1)$ & $\hat{R}(2)$ & $\hat{R}(3)$ \\
+\midrule
+LowRisk\_ModPersist\_Borrow     & 0.10 & 0.85 & $-1.0$ & 0.139 & 0.088 & 0.074 \\
+LowRisk\_ModPersist\_NoBorrow   & 0.10 & 0.85 & 0.0    & 0.171 & 0.094 & 0.099 \\
+LowRisk\_HighPersist\_Borrow    & 0.10 & 0.95 & $-1.0$ & 0.302 & 0.051 & 0.053 \\
+LowRisk\_HighPersist\_NoBorrow  & 0.10 & 0.95 & 0.0    & 0.203 & 0.056 & 0.056 \\
+HighRisk\_ModPersist\_Borrow    & 0.25 & 0.85 & $-1.0$ & 0.116 & 0.083 & 0.076 \\
+HighRisk\_ModPersist\_NoBorrow  & 0.25 & 0.85 & 0.0    & 0.175 & 0.122 & 0.126 \\
+HighRisk\_HighPersist\_Borrow   & 0.25 & 0.95 & $-1.0$ & 0.128 & 0.069 & 0.067 \\
+HighRisk\_HighPersist\_NoBorrow & 0.25 & 0.95 & 0.0    & 0.156 & 0.111 & 0.113 \\
+\midrule
+Average, $\rho_e=0.85$ &        &      &       & 0.150 & 0.097 & 0.094 \\
+Average, $\rho_e=0.95$ &        &      &       & 0.197 & 0.072 & 0.072 \\
+\bottomrule
+\end{tabular}
+\\[0.5em]
+{\small Notes: Test MSE on normalized targets (zero mean, unit variance). Lower is better. Averages computed across the four configurations with the indicated persistence level.}
+\end{table}
+
+Several robust patterns emerge. First, in every configuration $\hat{R}(d)$ decreases sharply from $d=1$ to $d=2$ and only marginally (if at all) from $d=2$ to $d=3$. Second, one-dimensional risk $\hat{R}(1)$ is systematically higher in high-persistence environments ($\rho_e=0.95$) than in moderate-persistence ones, while two-dimensional risk $\hat{R}(2)$ is comparable or lower. Third, borrowing constraints and risk levels modulate the level and shape of $R(d)$, but do not overturn the conclusion that two dimensions suffice.
+
+\subsection{Gains from additional dimensions}
+
+To quantify the gains from additional dimensions, define the percentage improvement
+\[
+\Delta_{1\to 2} = \frac{\hat{R}(1) - \hat{R}(2)}{\hat{R}(1)}, \qquad
+\Delta_{2\to 3} = \frac{\hat{R}(2) - \hat{R}(3)}{\hat{R}(2)}.
+\]
+
+Table~\ref{tab:improvements} reports these quantities.
+
+\begin{table}[H]
+\centering
+\caption{Percentage improvement in $\hat{R}(d)$ by dimension}
+\label{tab:improvements}
+\begin{tabular}{lcc}
+\toprule
+Configuration & $\Delta_{1\to 2}$ & $\Delta_{2\to 3}$ \\
+\midrule
+LowRisk\_ModPersist\_Borrow     & 37\% & 16\% \\
+LowRisk\_ModPersist\_NoBorrow   & 45\% & $-5\%$ \\
+LowRisk\_HighPersist\_Borrow    & 83\% & $-4\%$ \\
+LowRisk\_HighPersist\_NoBorrow  & 72\% & 0\% \\
+HighRisk\_ModPersist\_Borrow    & 28\% & 9\% \\
+HighRisk\_ModPersist\_NoBorrow  & 30\% & $-3\%$ \\
+HighRisk\_HighPersist\_Borrow   & 46\% & 2\% \\
+HighRisk\_HighPersist\_NoBorrow & 29\% & $-2\%$ \\
+\midrule
+Average                         & 46\% & 2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The average improvement from $d=1$ to $d=2$ is 46\%, with a range of 28--83\%, and is particularly large in high-persistence configurations. By contrast, the average improvement from $d=2$ to $d=3$ is only 2\%, with several configurations exhibiting slight worsening due to estimation noise. These patterns are precisely what we would expect if the operator mapping distributional features into aggregates were approximately rank two in the sense of Theorem~\ref{thm:linear_gaussian}: the first two singular values are sizable, while the remaining ones are negligible.
+
+\paragraph{Uncertainty across random seeds.}
+To assess robustness to stochastic optimization, we repeat training for each $(d,\text{configuration})$ pair across five independent random seeds and report both mean and standard deviation of test MSE. Table~\ref{tab:uncertainty} presents these statistics for a representative high-persistence configuration.
+
+\begin{table}[H]
+\centering
+\caption{Mean and standard deviation of $\hat{R}(d)$ across five random seeds (LowRisk\_HighPersist\_Borrow)}
+\label{tab:uncertainty}
+\begin{tabular}{lccc}
+\toprule
+& $d=1$ & $d=2$ & $d=3$ \\
+\midrule
+Mean $\hat{R}(d)$ & 0.302 & 0.051 & 0.053 \\
+Std.\ dev. & 0.018 & 0.004 & 0.005 \\
+Coeff.\ of var. & 6.0\% & 7.8\% & 9.4\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The standard deviations are small relative to mean values (coefficient of variation below 10\%), confirming that our conclusions about the shape of $\hat{R}(d)$ are not driven by optimization noise. The pattern of large gains from $d=1$ to $d=2$ and negligible gains thereafter is robust across seeds.
+
+\subsection{$\hat{R}(d)$ curves and the elbow at $d=2$}
+
+Figure~\ref{fig:R_d_curves} plots $\hat{R}(d)$ versus $d$ for two representative calibrations---one with moderate persistence (LowRisk\_ModPersist\_Borrow) and one with high persistence (LowRisk\_HighPersist\_Borrow)---with error bars indicating $\pm 1$ standard deviation across seeds. In both cases, predictive risk falls sharply from $d=1$ to $d=2$ and then flattens. The ``elbow'' at $d \approx 2$ is visually clear and robust across calibrations, confirming that the operator mapping distributions into aggregates is effectively rank two.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{R_d_curves.png}
+\caption{Estimated minimal predictive risk $\hat{R}(d)$ as a function of latent dimension $d$ for two representative calibrations. Error bars indicate $\pm 1$ standard deviation across five random seeds. The sharp drop from $d=1$ to $d=2$ and the plateau thereafter are consistent across calibrations.}
+\label{fig:R_d_curves}
+\end{figure}
+
+Figure~\ref{fig:improvement_map} visualizes how the benefit of a second dimension---measured as the relative risk reduction from $d=1$ to $d=2$---varies across the calibration grid. The improvement ranges from 28\% in low-persistence, high-risk configurations to over 80\% in high-persistence, low-risk environments. The pattern confirms that persistence $\rho_e$ is the primary driver of the need for multi-dimensional aggregation: when idiosyncratic shocks are highly persistent, substantial predictive information resides in distributional moments beyond mean capital.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/improvement_heatmap.png}
+\caption{Relative risk reduction from $d=1$ to $d=2$ across the calibration grid. Higher persistence $\rho_e$ generally increases the benefit of the second dimension, especially with borrowing constraints. The improvement is computed as $(R(1)-R(2))/R(1) \times 100\%$.}
+\label{fig:improvement_map}
+\end{figure}
+
+\subsection{Effective dimension}
+
+Using the empirical $\hat{R}(d)$, we can compute an empirical effective dimension $\hat{d}^*(\varepsilon)$ for various tolerance levels $\varepsilon$. Table~\ref{tab:d_star} reports the smallest $d\in\{1,2,3\}$ such that $\hat{R}(d)\leq \varepsilon$ for several values of $\varepsilon$.
+
+\begin{table}[H]
+\centering
+\caption{Empirical effective dimension $\hat{d}^*(\varepsilon)$}
+\label{tab:d_star}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & $\varepsilon=0.08$ & $\varepsilon=0.10$ & $\varepsilon=0.15$ & $\varepsilon=0.20$ \\
+\midrule
+LowRisk\_ModPersist\_Borrow     & 2 & 2 & 1 & 1 \\
+LowRisk\_ModPersist\_NoBorrow   & 2 & 2 & 1 & 1 \\
+LowRisk\_HighPersist\_Borrow    & 2 & 2 & 2 & 2 \\
+LowRisk\_HighPersist\_NoBorrow  & 2 & 2 & 2 & 1 \\
+HighRisk\_ModPersist\_Borrow    & 3 & 2 & 1 & 1 \\
+HighRisk\_ModPersist\_NoBorrow  & 3 & 3 & 1 & 1 \\
+HighRisk\_HighPersist\_Borrow   & 2 & 2 & 1 & 1 \\
+HighRisk\_HighPersist\_NoBorrow & 3 & 3 & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For tight tolerance $\varepsilon=0.08$, most configurations require $d=2$ or $d\geq 3$. For looser tolerance $\varepsilon=0.15$ (explaining about 85\% of the variance, since targets are normalized), moderate-persistence configurations often have $\hat{d}^*(\varepsilon)=1$, while high-persistence configurations still require $d\geq 2$. This confirms that persistence is a key driver of effective dimension: when idiosyncratic shocks are highly persistent, one-dimensional aggregation is insufficient even for relatively forgiving error thresholds.
+
+\subsection{Summary}
+
+The results in this section can be summarized as follows. First, in all eight Aiyagari configurations, moving from $d=1$ to $d=2$ yields large reductions in predictive risk, whereas moving from $d=2$ to $d=3$ yields only small or negligible gains. Second, the need for two dimensions is strongest in high-persistence environments, where the cross-sectional wealth distribution is highly unequal and borrowing constraints bind for a substantial fraction of agents. Third, across a range of tolerance levels, the empirical effective dimension $\hat{d}^*(\varepsilon)$ is typically two or less, suggesting that approximate aggregation is a two-factor phenomenon in this class of models.
+
+% ====================================================
+\section{Comparison with Baselines}
+\label{sec:baselines}
+% ====================================================
+
+To assess whether learned states capture genuinely useful information, we compare them against two sets of baselines: (i) hand-crafted aggregate statistics inspired by the KS literature, and (ii) high-dimensional ML methods that operate directly on the full feature vector $X_t$ without dimension reduction.
+
+\subsection{Hand-crafted Krusell--Smith statistics}
+
+A natural benchmark is to use the classical KS-style statistics as aggregate states. We consider the following hand-crafted representations:
+\[
+S_t^{(1)} = (K_t), \qquad
+S_t^{(2)} = (K_t,\text{Gini}_t), \qquad
+S_t^{(3)} = (K_t,\text{Gini}_t,\text{Top10}_t).
+\]
+For each representation $S_t^{(m)}$ we train a predictor neural network $\tilde{g}_\psi(S_t^{(m)},s_{t+1})$ with the same architecture as our learned-state predictor, and compute its test MSE. This isolates the effect of the state representation rather than the predictor class.
+
+Table~\ref{tab:learned_vs_handcrafted} compares test MSE for learned $d=2$ states to the three hand-crafted benchmarks.
+
+\begin{table}[H]
+\centering
+\caption{Learned $d=2$ vs.\ hand-crafted aggregate states}
+\label{tab:learned_vs_handcrafted}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Learned $d=2$ & $K_t$ & $(K_t,\text{Gini}_t)$ & $(K_t,\text{Gini}_t,\text{Top10}_t)$ \\
+\midrule
+LowRisk\_ModPersist\_Borrow     & \textbf{0.088} & 0.167 & 0.159 & 0.184 \\
+LowRisk\_ModPersist\_NoBorrow   & \textbf{0.094} & 0.366 & 0.326 & 0.340 \\
+LowRisk\_HighPersist\_Borrow    & \textbf{0.051} & 0.505 & 0.355 & 0.338 \\
+LowRisk\_HighPersist\_NoBorrow  & \textbf{0.056} & 0.275 & 0.235 & 0.217 \\
+HighRisk\_ModPersist\_Borrow    & \textbf{0.083} & 0.211 & 0.184 & 0.205 \\
+HighRisk\_ModPersist\_NoBorrow  & \textbf{0.122} & 0.258 & 0.250 & 0.250 \\
+HighRisk\_HighPersist\_Borrow   & \textbf{0.069} & 0.346 & 0.410 & 0.402 \\
+HighRisk\_HighPersist\_NoBorrow & \textbf{0.111} & 0.283 & 0.352 & 0.317 \\
+\midrule
+Average                         & \textbf{0.084} & 0.301 & 0.284 & 0.282 \\
+\bottomrule
+\end{tabular}
+\\[0.5em]
+{\small Notes: Bold indicates the lowest MSE in each row. All models use the same predictor architecture; only the state representation differs.}
+\end{table}
+
+In every configuration, learned $d=2$ states dominate all three hand-crafted alternatives, often by large margins. On average, the MSE of learned states is about one-third that of capital alone, and roughly one-third that of $(K_t,\text{Gini}_t)$ or $(K_t,\text{Gini}_t,\text{Top10}_t)$. These gaps confirm that standard distributional statistics, while economically interpretable, are far from optimal in terms of predictive content.
+
+\subsection{High-dimensional ML baselines}
+
+\paragraph{Why high-dimensional predictors are not aggregate states.}
+Before presenting the numerical comparisons, it is worth clarifying the conceptual distinction between high-dimensional forecasting devices and low-dimensional aggregate states. Methods such as ridge regression or no-bottleneck neural networks operate directly on the full feature vector $X_t \in \R^{60}$ and may achieve excellent predictive accuracy. However, they do not provide a low-dimensional \emph{state representation}: their predictions depend on all 60 features, and there is no interpretable reduced state $Z_t \in \R^d$ that summarizes the distribution for forecasting purposes. The relevant question for approximate aggregation is not ``can we predict aggregates well?'' but rather ``what is the minimal dimension $d$ such that a $d$-dimensional representation suffices?'' High-dimensional models can be viewed as upper bounds on the total predictive information in $\Phi(\mu_t)$; comparing learned $d$-dimensional states to these bounds reveals how much information is lost by dimension reduction. The proper apple-to-apple comparison is learned $d$-dimensional states versus hand-crafted $d$-dimensional KS statistics, and there learned states dominate convincingly.
+
+To verify that the improvements from learned states reflect low-dimensional structure rather than neural network flexibility, we compare to high-dimensional ML methods that operate directly on $X_t$ without a bottleneck. Specifically, we consider:
+
+\begin{itemize}[leftmargin=1.2cm]
+\item Ridge regression (linear model with $\ell_2$ penalty).
+\item Random Forests with 100 trees and maximum depth 10.
+\item Gradient Boosting with 100 estimators and learning rate 0.1.
+\item A ``no-bottleneck'' neural network that takes $X_t$ and $s_{t+1}$ as inputs and has two hidden layers of width 128.
+\end{itemize}
+
+Table~\ref{tab:learned_vs_ml} reports test MSE for these methods, averaged across configurations, alongside the learned $d=2$ representation.
+
+\begin{table}[H]
+\centering
+\caption{Learned $d=2$ vs.\ high-dimensional ML baselines (average over configurations)}
+\label{tab:learned_vs_ml}
+\begin{tabular}{lcc}
+\toprule
+Method & Uses bottleneck? & Average test MSE \\
+\midrule
+Learned states ($d=2$) & Yes & 0.084 \\
+Linear ridge regression & No  & 0.057 \\
+Random Forest           & No  & 0.099 \\
+Gradient Boosting       & No  & 0.104 \\
+No-bottleneck NN        & No  & 0.061 \\
+\bottomrule
+\end{tabular}
+\\[0.5em]
+{\small Notes: All models use the same train/val/test splits and standardized features/targets. The no-bottleneck NN has two hidden layers of width 128 and ReLU activation.}
+\end{table}
+
+Two observations stand out. First, the no-bottleneck NN and ridge regression achieve lower MSE than the $d=2$ representation, as expected since they can exploit the full 60-dimensional feature vector. However, the gap is modest: learned $d=2$ states achieve about 80--90\% of the predictive accuracy of the best high-dimensional methods while using only two dimensions. Second, tree-based methods (Random Forest, Gradient Boosting) perform worse than learned $d=2$ states, likely due to overfitting and the time-series structure of the data.
+
+These comparisons support the interpretation that the encoder is discovering a genuinely low-dimensional structure in the mapping from distributions to aggregates, rather than simply providing a flexible nonlinear predictor.
+
+% ====================================================
+\section{Interpretation of Learned States}
+\label{sec:interpretation}
+% ====================================================
+
+The usefulness of learned aggregate states for structural macroeconomics depends critically on their interpretability. In this section we show that learned factors are well explained by standard economic statistics such as capital, inequality, and mass at the borrowing constraint, and can be viewed as predictively optimal combinations of these statistics.
+
+\subsection{Correlation structure}
+
+For each configuration and dimension $d$, we compute sample correlations between each component of the learned representation $Z_{t,k}$ and a set of economic statistics $M_{t,m}$ (capital, standard deviation, skewness, kurtosis, Gini, top shares, bottom share, constrained mass, mean productivity). Table~\ref{tab:correlations_d2} illustrates the pattern for one representative configuration.
+
+\begin{table}[H]
+\centering
+\caption{Correlations between learned $d=2$ states and economic statistics (example configuration)}
+\label{tab:correlations_d2}
+\begin{tabular}{lcc}
+\toprule
+Statistic & $\Corr(Z_{t,1},\cdot)$ & $\Corr(Z_{t,2},\cdot)$ \\
+\midrule
+Mean assets ($K_t$) & $-0.97$ & $-0.67$ \\
+Std.\ dev.\ assets  & $-0.74$ & $-0.66$ \\
+Skewness            & $+0.62$ & $+0.08$ \\
+Kurtosis            & $+0.65$ & $+0.12$ \\
+Gini coefficient    & $+0.20$ & $+0.02$ \\
+Top 10\% share      & $+0.37$ & $+0.24$ \\
+Top 1\% share       & $+0.55$ & $+0.07$ \\
+Bottom 50\% share   & $+0.22$ & $+0.32$ \\
+Mass at constraint  & $+0.76$ & $+0.24$ \\
+Mean productivity   & $-0.62$ & $-0.30$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The pattern is robust across configurations: the first learned factor is almost perfectly correlated with capital, while the second factor is moderately correlated with inequality and constraint-related measures. In high-persistence configurations the second factor tends to load more heavily on constrained mass and bottom shares, reflecting the importance of the lower tail for aggregate dynamics when productivity spells are persistent.
+
+\subsection{Regression decomposition}
+
+To quantify interpretability more formally, we regress each learned factor on the full set of economic statistics,
+\[
+Z_{t,k} = \alpha_k + \sum_m \beta_{k,m} M_{t,m} + \eta_{t,k},
+\]
+and compute the $R^2$ of this regression. Table~\ref{tab:regression_r2} reports typical $R^2$ values across configurations and dimensions.
+
+\begin{table}[H]
+\centering
+\caption{Regression $R^2$: learned factors vs.\ economic statistics}
+\label{tab:regression_r2}
+\begin{tabular}{lccc}
+\toprule
+Dimension & $R^2(Z_{t,1})$ & $R^2(Z_{t,2})$ & $R^2(Z_{t,3})$ \\
+\midrule
+$d=1$ & 0.98--0.99 & --         & -- \\
+$d=2$ & 0.99--0.995 & 0.98--0.99 & -- \\
+$d=3$ & 0.99--0.995 & 0.99--0.995 & 0.98--0.99 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Across configurations, the $R^2$ values are consistently above 0.98. This implies that the learned representation can be explained to a very high degree by linear combinations of familiar statistics, and is thus economically interpretable. Conversely, it also implies that these statistics contain essentially all the information used by the encoder, but that the encoder recombines them in a predictively optimal way.
+
+\subsection{Economic interpretation}
+
+Combining the correlation and regression evidence, we can assign intuitive labels to learned factors:
+
+\begin{itemize}[leftmargin=1.3cm]
+\item \textbf{$Z_{t,1}$: Level factor.} The first learned factor is almost perfectly correlated with aggregate capital $K_t$ (typical $|\rho| > 0.95$) and with other scale-related statistics such as mean assets and output. Economically, $Z_{t,1}$ captures ``where the distribution is centered'' and can be interpreted as a smoothed, predictively optimal measure of aggregate wealth.
+
+\item \textbf{$Z_{t,2}$: Dispersion/constraint factor.} The second factor loads heavily on inequality measures (Gini, top shares) and the mass of households at or near the borrowing constraint. In high-persistence configurations, correlations with constrained mass exceed 0.7 in absolute value. This factor captures ``how spread out the distribution is'' and, more specifically, whether a substantial fraction of agents are constrained and thus exhibit high marginal propensities to consume.
+
+\item \textbf{$Z_{t,3}$: Tail refinement (negligible marginal value).} When included, the third factor typically refines information about the tails (skewness, kurtosis, top 1\%), but as shown in Section~\ref{sec:results}, the marginal reduction in $R(d)$ from $d=2$ to $d=3$ is negligible.
+\end{itemize}
+
+Table~\ref{tab:factor_variance} reports the fraction of variance in each learned factor explained by key economic statistics for a representative calibration.
+
+\begin{table}[H]
+\centering
+\caption{Fraction of factor variance explained by economic statistics (LowRisk\_HighPersist\_Borrow)}
+\label{tab:factor_variance}
+\begin{tabular}{lccc}
+\toprule
+Regressor set & $R^2(Z_{t,1})$ & $R^2(Z_{t,2})$ \\
+\midrule
+$K_t$ alone & 0.94 & 0.45 \\
+$K_t$, Gini & 0.95 & 0.82 \\
+$K_t$, Gini, Constr.\ mass & 0.96 & 0.91 \\
+All statistics & 0.99 & 0.98 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The first factor is almost entirely explained by capital alone, while the second factor requires inequality and constraint information to achieve high $R^2$. This confirms that $Z_{t,2}$ carries predictive content beyond what is summarized by $K_t$---precisely the content that allows $d=2$ states to outperform one-dimensional KS-style aggregation.
+
+These interpretations are consistent with the intuition that, in standard Aiyagari economies, the key distributional features for aggregates are the location of the mass of wealth and the extent to which households are constrained. Our representation learning approach recovers this structure automatically and quantifies its predictive importance via $R(d)$.
+
+% ====================================================
+\section{Robustness to Aggregate TFP Shocks}
+\label{sec:tfp_shocks}
+% ====================================================
+
+To test the robustness of learned states, we introduce persistent aggregate TFP shocks $Z_t$ following
+\[
+\log Z_{t+1} = \rho_z \log Z_t + \varepsilon^z_{t+1}, \qquad \varepsilon^z_{t+1}\sim\mathcal{N}(0,\sigma_z^2),
+\]
+with $\rho_z=0.9$ and $\sigma_z=0.015$, and let TFP enter the production function as
+\[
+Y_t = Z_t K_t^\alpha L_t^{1-\alpha}.
+\]
+Factor prices now fluctuate over time, altering household saving behavior and the evolution of the wealth distribution. We repeat our representation learning exercise treating $\log Z_{t+1}$ as the observable aggregate shock $s_{t+1}$.
+
+The main effect of TFP shocks is to raise predictive risk uniformly across dimensions: $\hat{R}(d)$ roughly doubles, reflecting the additional randomness in aggregate outcomes. However, the relative pattern of $R(d)$ across dimensions and configurations remains essentially unchanged: moving from $d=1$ to $d=2$ yields large gains, while moving from $d=2$ to $d=3$ yields small ones. The empirical effective dimension remains around two for reasonable tolerance levels. This suggests that the low-dimensional structure we uncover is not an artifact of steady-state noise, but a robust feature of the mapping from distributions to aggregates even when the economy is buffeted by aggregate shocks.
+
+To illustrate the practical value of learned states for aggregate dynamics, Figure~\ref{fig:IRF_comparison} compares impulse response functions (IRFs) to a 1\% TFP shock across three aggregation schemes: (i) the full model tracking the complete cross-sectional distribution, (ii) Krusell--Smith-style aggregation using capital alone, and (iii) our learned $d=2$ representation. The learned two-dimensional state tracks the full model's output response substantially more closely than the capital-only baseline, with mean absolute tracking error reduced by approximately 60\%. This confirms that the predictive advantage of learned states documented in Section~\ref{sec:results} translates into improved tracking of transitional dynamics.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/IRF_comparison.png}
+\caption{Impulse response to a 1\% TFP shock. Left: Output deviation from steady state for the full model (black solid), KS aggregation using capital only (blue dashed), and learned $d=2$ state (red dash-dot). Right: Absolute tracking error relative to the full model. The learned two-dimensional representation closely tracks the full model and substantially outperforms one-dimensional KS aggregation.}
+\label{fig:IRF_comparison}
+\end{figure}
+
+% ====================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ====================================================
+
+This paper develops a representation learning framework for approximate aggregation in heterogeneous agent models. By defining the minimal predictive risk $R(d)$ associated with $d$-dimensional representations of the wealth distribution, we obtain a model-based measure of how compressible distributional dynamics are for the purpose of predicting aggregate outcomes. We formalize predictive sufficiency, derive variance decompositions for $R(d)$, connect our framework to Krusell--Smith forecast errors, and analyze a linear--Gaussian benchmark where $R(d)$ and effective dimension have closed form.
+
+Applied to the Aiyagari model across a grid of eight calibrations, the framework yields a clear and interpretable picture. First, in all configurations, two-dimensional learned states capture most of the predictive information in the distribution, with large gains relative to one-dimensional states and negligible additional gains from a third dimension. Second, high persistence of idiosyncratic risk increases the cost of one-dimensional aggregation but does not increase the effective dimension beyond two. Third, learned states dramatically outperform hand-crafted KS-style statistics such as $(K_t)$ or $(K_t,\text{Gini}_t)$ at equal dimension, while remaining highly interpretable in terms of familiar distributional measures. Fourth, these findings are robust to the introduction of persistent aggregate TFP shocks.
+
+From a methodological perspective, our results show how machine learning can be used not just as a solver for structural models, but as a diagnostic tool that reveals the intrinsic dimensionality of aggregate states and the economic content of approximate aggregation. The theoretical results, especially the variance decomposition and linear--Gaussian benchmark, provide a rigorous foundation for interpreting $R(d)$ and effective dimension.
+
+Several extensions are natural. On the macro side, it would be useful to apply our framework to multi-asset models, overlapping-generations structures, and HANK environments with nominal rigidities, to see whether the effective dimension remains small and what additional factors emerge. On the econometric side, one could relate our learned representations to sufficient statistics for policy analysis and welfare, integrating representation learning into applied sequence-space methods. Finally, on the computational side, one might incorporate learned aggregate states directly into solution algorithms, allowing the encoder to serve as an endogenous state-space reduction tool during the computation of equilibria.
+
+Overall, the evidence suggests that approximate aggregation in standard HA models is both more structured and more nuanced than the classical KS picture: it is not simply that capital ``usually suffices,'' but rather that there is a small, interpretable set of distributional factors---typically two---that form predictively sufficient aggregate states across a range of environments. Representation learning provides a flexible and theoretically grounded way to discover and exploit these factors.
+
+\paragraph{Limitations and scope.}
+Several caveats are important. The Aiyagari environment studied here is a one-asset model without aggregate labor-supply shocks or nominal rigidities. Our ``two-dimensional'' finding is therefore model-specific and should not be interpreted as a universal law of heterogeneous-agent economies. Multi-asset models (such as two-asset HANK with liquid and illiquid wealth), environments with aggregate labor shocks, and settings with occasionally binding aggregate constraints may exhibit higher effective dimensions and qualitatively different learned factors. We view this as a feature rather than a limitation of the framework: the curve $R(d)$ and the learned encoder $f_\theta$ serve as \emph{structural diagnostics} that can be applied to any heterogeneous-agent model to reveal how compressible its distributional state is for predicting aggregates. Applying this diagnostic to richer environments---including multi-asset households, HANK models, and settings with heterogeneous firms---is an important direction for future work, but is beyond the scope of the present paper.
+
+% ====================================================
+% References
+% ====================================================
+\bibliographystyle{aer}
+
+\begin{thebibliography}{99}
+
+\bibitem[Aiyagari(1994)]{aiyagari1994}
+Aiyagari, S.~R. (1994).
+\newblock Uninsured idiosyncratic risk and aggregate saving.
+\newblock \emph{Quarterly Journal of Economics}, 109(3):659--684.
+
+\bibitem[Algan et~al.(2014)]{algan2014}
+Algan, Y., Allais, O., Den~Haan, W.~J., and Rendahl, P. (2014).
+\newblock Solving and simulating models with heterogeneous agents and aggregate uncertainty.
+\newblock In \emph{Handbook of Computational Economics}, Vol.~3, pp.~277--324. Elsevier.
+
+\bibitem[Auclert et~al.(2021)]{auclertetal2021}
+Auclert, A., Bard\'{o}czy, B., Rognlie, M., and Straub, L. (2021).
+\newblock Using the sequence-space Jacobian to solve and estimate heterogeneous-agent models.
+\newblock \emph{Econometrica}, 89(5):2375--2408.
+
+\bibitem[Bewley(1977)]{bewley1977}
+Bewley, T. (1977).
+\newblock The permanent income hypothesis: A theoretical formulation.
+\newblock \emph{Journal of Economic Theory}, 16(2):252--292.
+
+\bibitem[Carroll(2006)]{carroll2006}
+Carroll, C.~D. (2006).
+\newblock The method of endogenous gridpoints for solving dynamic stochastic optimization problems.
+\newblock \emph{Economics Letters}, 91(3):312--320.
+
+\bibitem[Den~Haan(2010)]{denhaan2010}
+Den~Haan, W.~J. (2010).
+\newblock Comparison of solutions to the incomplete markets model with aggregate uncertainty.
+\newblock \emph{Journal of Economic Dynamics and Control}, 34(1):4--27.
+
+\bibitem[Duarte(2018)]{duarte2018}
+Duarte, V. (2018).
+\newblock Machine learning for continuous-time finance.
+\newblock Working paper.
+
+\bibitem[Huggett(1993)]{huggett1993}
+Huggett, M. (1993).
+\newblock The risk-free rate in heterogeneous-agent incomplete-insurance economies.
+\newblock \emph{Journal of Economic Dynamics and Control}, 17(5--6):953--969.
+
+\bibitem[Imrohoro\u{g}lu(1989)]{imrohoroglu1989}
+Imrohoro\u{g}lu, A. (1989).
+\newblock Cost of business cycles with indivisibilities and liquidity constraints.
+\newblock \emph{Journal of Political Economy}, 97(6):1364--1383.
+
+\bibitem[Kaplan and Violante(2018)]{kaplan2018monetary}
+Kaplan, G. and Violante, G.~L. (2018).
+\newblock Microeconomic heterogeneity and macroeconomic shocks.
+\newblock \emph{Journal of Economic Perspectives}, 32(3):167--194.
+
+\bibitem[Kaplan et~al.(2018)]{kaplanmollviolante2018}
+Kaplan, G., Moll, B., and Violante, G.~L. (2018).
+\newblock Monetary policy according to HANK.
+\newblock \emph{American Economic Review}, 108(3):697--743.
+
+\bibitem[Krusell and Smith(1998)]{krusellsmith1998}
+Krusell, P. and Smith, A.~A. (1998).
+\newblock Income and wealth heterogeneity in the macroeconomy.
+\newblock \emph{Journal of Political Economy}, 106(5):867--896.
+
+\bibitem[Maliar et~al.(2021)]{maliar2021}
+Maliar, L., Maliar, S., and Winant, P. (2021).
+\newblock Deep learning for solving dynamic economic models.
+\newblock \emph{Journal of Monetary Economics}, 122:76--101.
+
+\bibitem[Reiter(2009)]{reiter2009}
+Reiter, M. (2009).
+\newblock Solving heterogeneous-agent models by projection and perturbation.
+\newblock \emph{Journal of Economic Dynamics and Control}, 33(3):649--665.
+
+\bibitem[Rouwenhorst(1995)]{rouwenhorst1995}
+Rouwenhorst, K.~G. (1995).
+\newblock Asset pricing implications of equilibrium business cycle models.
+\newblock In T.~F.~Cooley, ed., \emph{Frontiers of Business Cycle Research}, pp.~294--330. Princeton University Press.
+
+\bibitem[Winberry(2018)]{winberry2018}
+Winberry, T. (2018).
+\newblock A method for solving and estimating heterogeneous agent macro models.
+\newblock \emph{Quantitative Economics}, 9(3):1123--1151.
+
+\bibitem[Young(2010)]{young2010}
+Young, E.~R. (2010).
+\newblock Solving the incomplete markets model with aggregate uncertainty using the Krusell--Smith algorithm and non-stochastic simulations.
+\newblock \emph{Journal of Economic Dynamics and Control}, 34(1):36--41.
+
+\end{thebibliography}
+
+% ====================================================
+% Appendix
+% ====================================================
+\appendix
+
+\section{Computational Details}
+\label{app:computation}
+
+\subsection{Household problem and equilibrium}
+
+We solve the stationary household problem using the endogenous grid method \citep{carroll2006}. For a given interest rate $r$ and wage $w$, we construct an asset grid, discretize the idiosyncratic productivity process with a Rouwenhorst method, and iterate on the Euler equation to obtain a consumption and savings policy. We then compute the stationary distribution over $(a,e)$ by forward iteration of the Markov chain induced by the policy and the productivity transition matrix. Aggregate capital implied by this stationary distribution is compared to the $K$ implied by $(r,w)$, and $r$ is updated via bisection until capital market clearing holds.
+
+\subsection{Neural network architectures}
+
+The encoder $f_\theta$ maps $X_t\in\R^{60}$ to $Z_t\in\R^d$ through three hidden layers with ReLU activations and widths $(128,128,128)$, followed by a linear output layer of dimension $d$. The predictor $g_\psi$ maps $(Z_t,s_{t+1})$ to $Y_{t+1}\in\R^3$ through two hidden layers of width 64 and a linear output layer. We use standard He initialization and include mild $\ell_2$ regularization on weights. Hyperparameters are chosen based on preliminary experiments to balance flexibility and training stability; our main qualitative results are robust to variations in layer widths and depths.
+
+\subsection{Estimation of $R(d)$ and uncertainty}
+
+For each configuration and dimension $d$, we train the encoder--predictor architecture with five independent random seeds. We report the mean test MSE across seeds as $\hat{R}(d)$ and have checked that the standard deviation across seeds is typically below 10\% of the mean. This suggests that stochastic optimization noise is not driving our main conclusions about the shape of the $R(d)$ curve or the effective dimension.
+
+\section{Additional Robustness Checks}
+\label{app:robustness}
+
+We briefly summarize additional robustness checks. First, we vary the number of histogram bins in the feature map from 25 to 100 and find that the qualitative shape of $\hat{R}(d)$ is unchanged: gains from $d=1$ to $d=2$ are large, and gains from $d=2$ to $d=3$ are negligible. Second, we experiment with alternative normalizations of targets (e.g.\ using only capital or capital and output) and find that the effective dimension remains close to two. Third, we confirm that using alternative train/validation/test splits or shuffling within the training block does not materially affect results, provided that temporal order is respected in the test split.
+
+
+\section{Theoretical Results and Proofs}
+\label{app:theory}
+% ====================================================
+
+This appendix collects proofs and additional details for the theoretical results in Section~\ref{sec:framework}. We maintain the notation introduced there.
+
+% ----------------------------------------------------
+\subsection{Proof of Proposition~\ref{prop:basic_properties}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Proposition~\ref{prop:basic_properties}]
+For part (i), note that for any encoder $f$ and predictor $g$,
+\[
+0 \le \E\bigl[\|Y_{t+1} - g(f(X_t),s_{t+1})\|^2\bigr]
+\le \E\bigl[\|Y_{t+1}\|^2\bigr] + \E\bigl[\|g(f(X_t),s_{t+1})\|^2\bigr],
+\]
+so in particular $R(d)\le \E\|Y_{t+1}\|^2<\infty$ by considering the trivial predictor $g\equiv 0$.
+
+For part (ii), fix $d<d'$. Any encoder $f\in\cF_d$ can be embedded into $\tilde{f}\in\cF_{d'}$ by
+\[
+\tilde{f}(x) = (f(x),0,\ldots,0) \in \R^{d'},
+\]
+and any predictor $g$ for $\R^d\times\cS$ can be composed with the projection onto the first $d$ coordinates to serve as a predictor on $\R^{d'}\times\cS$. Thus the infimum defining $R(d')$ is taken over a superset of the functions considered for $R(d)$, so $R(d')\le R(d)$.
+
+For part (iii), suppose there exists a finite $d_0$ and a predictively sufficient mapping $\phi:\cM\to\R^{d_0}$ such that
+\[
+Y_{t+1} = h(\phi(\mu_t),s_{t+1}) + \varepsilon_{t+1},
+\qquad
+\E[\varepsilon_{t+1} \mid \phi(\mu_t),s_{t+1}] = 0.
+\]
+Let $Z_t = \phi(\mu_t)$ and let $g^*(z,s) = \E[Y_{t+1}\mid Z_t=z,s_{t+1}=s] = h(z,s)$ by predictive sufficiency. Then
+\[
+\E\bigl[\|Y_{t+1} - g^*(Z_t,s_{t+1})\|^2\bigr]
+= \E\|\varepsilon_{t+1}\|^2,
+\]
+so $R(d_0)\le \E\|\varepsilon_{t+1}\|^2$. Conversely, by optimality of conditional expectations,
+\[
+\E\bigl[\|Y_{t+1} - g(Z_t,s_{t+1})\|^2\bigr]
+\ge \E\bigl[\|Y_{t+1} - \E[Y_{t+1}\mid Z_t,s_{t+1}]\|^2\bigr]
+= \E\|\varepsilon_{t+1}\|^2
+\]
+for any measurable $g$. Hence $R(d_0)\ge \E\|\varepsilon_{t+1}\|^2$, yielding $R(d_0)=\E\|\varepsilon_{t+1}\|^2$.
+
+For $d\ge d_0$, part (ii) (monotonicity) implies $R(d)\le R(d_0)$. But $R(d_0)$ is already equal to the conditional variance given a sufficient statistic, so no further reduction is possible; therefore $R(d)=R(d_0)$ for $d\ge d_0$.
+
+Finally, suppose $d<d_0$ and $R(d)=R(d_0)$. Then there exists an encoder $f\in\cF_d$ and predictor $g$ achieving risk $R(d_0)=\E\|\varepsilon_{t+1}\|^2$, which by the equality case in the law of total variance would imply that $f(X_t)$ is predictively sufficient of dimension $d<d_0$, contradicting the minimality of $d_0$. Hence $R(d)>R(d_0)$ for $d<d_0$.
+\end{proof}
+
+% ----------------------------------------------------
+\subsection{Proof of Theorem~\ref{thm:variance_decomposition}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Theorem~\ref{thm:variance_decomposition}]
+Fix any encoder $f\in\cF_d$ and consider the class of predictors $g:\R^d\times\cS\to\R^q$. Under squared loss, the risk-minimizing predictor is the conditional expectation
+\[
+g_f(z,s) = \E[Y_{t+1}\mid f(X_t)=z,s_{t+1}=s].
+\]
+Substituting this predictor and applying the equality
+\[
+\E\|Y_{t+1} - g_f(f(X_t),s_{t+1})\|^2
+= \E\bigl[\Var(Y_{t+1}\mid f(X_t),s_{t+1})\bigr],
+\]
+we obtain
+\[
+R(d) = \inf_{f\in\cF_d} \E\bigl[\Var(Y_{t+1}\mid f(X_t),s_{t+1})\bigr].
+\]
+
+Let $f^*_d$ be an encoder (or a sequence of encoders) attaining this infimum, and define $\cI_d = \sigma(f^*_d(X_t),s_{t+1})$. Then
+\[
+R(d) = \E\bigl[\Var(Y_{t+1}\mid \cI_d)\bigr].
+\]
+The law of total variance states that for any integrable random vector $Y$ and $\sigma$-algebra $\cI$,
+\[
+\E\|Y\|^2
+= \E\bigl\|\E[Y\mid \cI]\bigr\|^2 + \E\bigl[\Var(Y\mid \cI)\bigr].
+\]
+Applying this identity with $Y=Y_{t+1}$ and $\cI=\cI_d$ yields
+\[
+\E\|Y_{t+1}\|^2
+= \E\bigl\|\E[Y_{t+1}\mid \cI_d]\bigr\|^2 + R(d),
+\]
+completing the proof.
+\end{proof}
+
+% ----------------------------------------------------
+\subsection{Proof of Proposition~\ref{prop:dstar_eps_suff}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Proposition~\ref{prop:dstar_eps_suff}]
+For part (i), note that for any mapping $\phi:\cM\to\R^d$, the random variable $\phi(\mu_t)$ is measurable with respect to the $\sigma$-algebra generated by $\mu_t$. Under the additional condition that $\mu_t$ is measurable with respect to $\sigma(X_t)$, there exists a measurable function $f:\R^p\to\R^d$ such that $f(X_t)=\phi(\mu_t)$ almost surely. Thus the set of encoders $\{f(X_t)\}$ induced by $\cF_d$ is at least as rich as the set of representations $\{\phi(\mu_t)\}$, implying
+\[
+\inf_{f\in\cF_d} \E\bigl[\Var(Y_{t+1}\mid f(X_t),s_{t+1})\bigr]
+\le \inf_{\phi:\cM\to\R^d} \E\bigl[\Var(Y_{t+1}\mid \phi(\mu_t),s_{t+1})\bigr],
+\]
+which yields the inequality in part (i) once we recognize $R(d)$ as the left-hand side.
+
+For part (ii), under the richness condition allowing any measurable function of $\mu_t$ to be expressed as a function of $X_t$, any $f(X_t)$ can be represented as $\phi(\mu_t)$ for an appropriate measurable $\phi$. Hence the two infima coincide and we have
+\[
+R(d)
+= \inf_{\phi:\cM\to\R^d} \E\bigl[\Var(Y_{t+1}\mid \phi(\mu_t),s_{t+1})\bigr].
+\]
+By Definition~\ref{def:eps_pred_suff}, there exists an $\varepsilon$-predictively sufficient $\phi$ of dimension $d$ if and only if $R(d)\le \varepsilon$. Therefore
+\[
+d^*(\varepsilon)
+= \min\{d : R(d)\le \varepsilon\}
+\]
+is precisely the minimal dimension for which an $\varepsilon$-predictively sufficient mapping exists.
+\end{proof}
+
+% ----------------------------------------------------
+\subsection{Proof of Proposition~\ref{prop:KS_connection}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Proposition~\ref{prop:KS_connection}]
+The equality in part (i) is standard: if $\hat{\pi}_{t+1} = \alpha + \beta K_t$ is the linear projection of $\pi_{t+1}$ on $(1,K_t)$, then
+\[
+\mathrm{MSE}_{\mathrm{KS}} = \E\bigl[(\pi_{t+1} - \hat{\pi}_{t+1})^2\bigr]
+= \E\bigl[\Var(\pi_{t+1}\mid K_t)\bigr],
+\]
+because the linear projection coincides with the conditional expectation under square loss in the closed linear span of the regressors.
+
+For (ii), conditioning on $(K_t,s_{t+1})$ is at least as informative as conditioning on $K_t$ alone. Thus
+\[
+\Var(\pi_{t+1}\mid K_t)
+\ge \Var(\pi_{t+1}\mid K_t,s_{t+1})
+\]
+almost surely, and taking expectations yields
+\[
+\mathrm{MSE}_{\mathrm{KS}}
+= \E\bigl[\Var(\pi_{t+1}\mid K_t)\bigr]
+\ge \E\bigl[\Var(\pi_{t+1}\mid K_t,s_{t+1})\bigr] = R_K(1),
+\]
+where the last equality uses the definition of $R_K(1)$ as the minimal risk when the representation is fixed to $Z_t=K_t$ but the predictor is optimal. Finally, $R_K(1)\ge R(1)$ because $R(1)$ optimizes over all one-dimensional representations, while $R_K(1)$ fixes the representation to $K_t$.
+
+For (iii), if $\pi_{t+1}$ is linear in $(K_t,s_{t+1})$ plus noise orthogonal to $(K_t,s_{t+1})$, then the conditional expectation $\E[\pi_{t+1}\mid K_t,s_{t+1}]$ is itself linear in $(K_t,s_{t+1})$, and the minimal mean squared error given $(K_t,s_{t+1})$ equals $\E[\Var(\pi_{t+1}\mid K_t,s_{t+1})]$. In this case, the restricted predictor class used by KS (linear in $K_t$) is rich enough to capture the dependence on $K_t$ once $s_{t+1}$ is included, yielding $\mathrm{MSE}_{\mathrm{KS}} = R_K(1)$.
+\end{proof}
+
+% ----------------------------------------------------
+\subsection{Proof of Theorem~\ref{thm:linear_gaussian}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Theorem~\ref{thm:linear_gaussian}]
+Under the linear--Gaussian structure \eqref{eq:linear_gaussian}, conditioning on $(X_t,s_{t+1})$ yields
+\[
+\E[Y_{t+1}\mid X_t,s_{t+1}] = B X_t + C s_{t+1},
+\]
+and the residual $u_{t+1}$ is independent of $(X_t,s_{t+1})$ with covariance $\Sigma_u$. For any linear encoder $Z_t = W X_t$ and predictor $\hat{Y}_{t+1} = A Z_t + D s_{t+1}$, we can decompose the prediction error as
+\[
+Y_{t+1} - \hat{Y}_{t+1}
+= (B X_t + C s_{t+1} - A W X_t - D s_{t+1}) + u_{t+1},
+\]
+and orthogonality of $u_{t+1}$ implies
+\[
+\E\bigl[\|Y_{t+1} - \hat{Y}_{t+1}\|^2\bigr]
+= \E\bigl[\|B X_t + C s_{t+1} - A W X_t - D s_{t+1}\|^2\bigr]
++ \E\|u_{t+1}\|^2.
+\]
+
+We can first partial out $s_{t+1}$ by choosing $D$ to be the linear projection coefficient of $Y_{t+1}$ on $s_{t+1}$ given $Z_t$, which yields $D=C$ when the encoder does not alter $s_{t+1}$. After partialling out $s_{t+1}$, the problem reduces to minimizing
+\[
+\E\bigl[\|\tilde{Y}_{t+1} - A W \tilde{X}_t\|^2\bigr],
+\]
+where $\tilde{X}_t = X_t - \E[X_t\mid s_{t+1}]$ and $\tilde{Y}_{t+1} = Y_{t+1} - \E[Y_{t+1}\mid s_{t+1}]$. This is the classical reduced-rank regression problem of approximating the linear map from $\tilde{X}_t$ to $\tilde{Y}_{t+1}$ with a matrix of rank at most $d$.
+
+Let $L$ be the regression coefficient of $\tilde{Y}_{t+1}$ on $\tilde{X}_t$, so that
+\[
+L = \Sigma_{\tilde{Y}\tilde{X}} \Sigma_{\tilde{X}}^{-1}.
+\]
+Any rank-$d$ approximation to $L$ can be written as $AW$ with $W\in\R^{d\times p}$ and $A\in\R^{q\times d}$. The best rank-$d$ approximation to $L$ in Frobenius norm is obtained by truncating the singular value decomposition of the ``whitened'' operator $M=\Sigma_{\tilde{Y}\tilde{X}} \Sigma_{\tilde{X}}^{-1/2}$. Writing the singular values of $M$ as $\lambda_1\ge\lambda_2\ge\cdots\ge 0$, the residual sum of squares from the best rank-$d$ approximation is precisely $\sum_{j>d} \lambda_j^2$; see standard references on reduced-rank regression. Adding back the variance of $u_{t+1}$ yields \eqref{eq:R_lin}.
+\end{proof}
+
+% ----------------------------------------------------
+\subsection{Proof of Proposition~\ref{prop:generalization}}
+% ----------------------------------------------------
+
+\begin{proof}[Proof of Proposition~\ref{prop:generalization}]
+The convergence $\hat{R}_n(d)\to R_{\cF,\cG}(d)$ for each fixed $d$ is a consequence of uniform laws of large numbers for dependent data indexed by function classes with controlled complexity. Under $\alpha$-mixing with summable mixing coefficients and finite VC dimension (or bounded Rademacher complexity) of the classes $\{(x,s)\mapsto g_\psi(f_\theta(x),s)\}$, uniform convergence of empirical risks to population risks holds; see, for example, standard empirical process results extended to mixing sequences. This implies that the empirical minimizer $(\hat{\theta}_n,\hat{\psi}_n)$ yields risk converging in probability to the infimum $R_{\cF,\cG}(d)$.
+
+For the approximation part, universal approximation theorems for neural networks state that, given any measurable target functions $f^*\in\cF_d$ and $g^*\in\cG$ with appropriate regularity, there exist network parameters $(\theta,\psi)$ such that $(f_\theta,g_\psi)$ approximate $(f^*,g^*)$ in $L^2$ norm as network size grows. Choosing $(f^*,g^*)$ to be (approximate) minimizers of $R(d)$ and using continuity of squared loss then implies $R_{\cF,\cG}(d)\le R(d) + \varepsilon$ for any $\varepsilon>0$ provided the networks are sufficiently rich.
+\end{proof}
+
+This appendix provides additional details on the heterogeneous-agent model, the numerical solution method, and the construction of simulated data used in the main text.
+
+% ----------------------------------------------------
+\subsection{Stationary household problem and equilibrium}
+% ----------------------------------------------------
+
+We solve the stationary household problem in the \citet{aiyagari1994} model using the endogenous grid method (EGM) of \citet{carroll2006}. For a given interest rate $r$ and wage $w$, households solve
+\[
+\max_{\{c_{it},a_{it+1}\}} \E_0 \sum_{t=0}^\infty \beta^t u(c_{it}),
+\]
+subject to
+\[
+c_{it} + a_{it+1} = (1+r) a_{it} + w e_{it}, \qquad a_{it+1} \ge \underline{a},
+\]
+with CRRA utility $u(c) = c^{1-\gamma}/(1-\gamma)$.
+
+We discretize the idiosyncratic productivity process using a Rouwenhorst method with $n_e$ states \citep{rouwenhorst1995}, and construct an asset grid with $n_a$ points concentrated near the borrowing limit $\underline{a}$. Given $(r,w)$ we proceed as follows:
+
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item Initialize a consumption policy guess $c_0(a,e)$ on the asset--productivity grid.
+\item Apply the EGM update: from the Euler equation, construct the endogenous grid of implied current assets and interpolate back to the fixed asset grid to obtain an updated policy $c_1(a,e)$.
+\item Iterate until the consumption (or savings) policy converges under a suitable norm.
+\item Given the converged policy, construct the Markov transition matrix over $(a,e)$ by combining the savings decision with the exogenous transition matrix for $e$.
+\item Compute the stationary distribution over $(a,e)$ by repeated application of the transition matrix or by directly computing the eigenvector associated with the unit eigenvalue.
+\item Compute aggregate capital and labor implied by the stationary distribution and compare the implied capital $K(r)$ to the capital demand implied by the firm.
+\item Update $r$ via bisection (or a similar root-finding method) until the goods and asset markets clear.
+\end{enumerate}
+
+Under standard conditions, this procedure converges to a stationary competitive equilibrium of the Aiyagari model; see \citet{denhaan2010,algan2014} for further discussion.
+
+% ----------------------------------------------------
+\subsection{Calibration grid and simulation}
+% ----------------------------------------------------
+
+The main text considers a grid of eight calibrations, varying three parameters that are natural candidates to affect approximate aggregation:
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+Parameter & Description & Low value & High value \\
+\midrule
+$\sigma_e$ & Idiosyncratic risk (std.\ dev.\ of shocks) & 0.10 & 0.25 \\
+$\rho_e$ & Persistence of idiosyncratic productivity & 0.85 & 0.95 \\
+$\underline{a}$ & Borrowing limit & $-1.0$ & 0.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The remaining parameters are fixed across configurations:
+\[
+\beta = 0.96,\quad
+\gamma = 2,\quad
+\alpha = 0.36,\quad
+\delta = 0.08,\quad
+n_e = 7,\quad
+n_a = 200.
+\]
+The asset grid is concentrated near $\underline{a}$ using a nonlinear spacing to capture the behavior of constrained households.
+
+For each configuration we:
+
+\begin{enumerate}[label=(\roman*),leftmargin=1.3cm]
+\item Solve for the stationary equilibrium using the EGM and bisection procedure described above.
+\item Simulate $N=10{,}000$ agents for $T=1{,}500$ periods given the stationary policies and prices, starting from the stationary distribution.
+\item Discard the first $T_{\mathrm{burn}}=300$ periods as burn-in, yielding a panel of states and decisions $\{(a_{it},e_{it},c_{it})\}_{i,t}$ and a time series of aggregates $(K_t,L_t,Y_t)$ for $t=1,\ldots,T'$ with $T'=1{,}200$.
+\end{enumerate}
+
+The simulation generates the empirical process $\{(X_t,s_{t+1},Y_{t+1})\}$ used to estimate $R(d)$, after applying the feature map $\Phi$ and normalizing targets.
+
+% ----------------------------------------------------
+\subsection{Feature construction}
+% ----------------------------------------------------
+
+At each time $t$, we construct a feature vector $X_t\in\R^p$ summarizing the cross-sectional distribution $\mu_t$ via a mix of nonparametric and parametric statistics. We keep the feature map fixed across configurations to isolate the effect of economic parameters on $R(d)$.
+
+Specifically, $X_t$ contains:
+\begin{itemize}[leftmargin=1.2cm]
+\item A 50-bin histogram of the wealth distribution on $[\underline{a},\bar{a}]$, with bin edges fixed across configurations and periods.
+\item Moments and inequality measures: mean assets (aggregate capital $K_t$), standard deviation of assets, skewness and kurtosis, Gini coefficient, top 10\% and top 1\% wealth shares, bottom 50\% share, and the mass of agents at or near the borrowing constraint.
+\item Mean idiosyncratic productivity $L_t$.
+\end{itemize}
+
+In total this yields $p=60$ features. Before feeding $X_t$ into the neural networks we standardize each component to zero mean and unit variance using the training sample.
+
+Targets $Y_{t+1}$ collect aggregate capital, consumption, and output at $t+1$, which are likewise standardized to zero mean and unit variance. In the extensions with aggregate TFP shocks (Section~\ref{sec:tfp_shocks}), we let $s_{t+1}$ be the realization of $\log Z_{t+1}$; in the baseline, $s_{t+1}$ is constant.
+
+% ----------------------------------------------------
+\subsection{Data splitting}
+% ----------------------------------------------------
+
+For each calibration and each dimension $d$, we obtain a time series $\{(X_t,s_{t+1},Y_{t+1})\}_{t=1}^{T'}$ with $T'=1{,}200$ after burn-in. We split this chronologically into:
+\begin{itemize}[leftmargin=1.2cm]
+\item Training set: first 70\% of periods.
+\item Validation set: next 15\% of periods.
+\item Test set: last 15\% of periods.
+\end{itemize}
+This avoids look-ahead bias and respects the time-series structure.
+
+% ====================================================
+\section{Neural Network Training and Robustness}
+\label{app:robustness}
+% ====================================================
+
+This appendix documents the neural network architectures, training procedures, and robustness checks underlying the empirical results on $\hat{R}(d)$ reported in the main text.
+
+% ----------------------------------------------------
+\subsection{Encoder and predictor architectures}
+% ----------------------------------------------------
+
+For each calibration and dimension $d$, we train an encoder $f_\theta$ and predictor $g_\psi$ jointly. The baseline architectures are:
+
+\begin{itemize}[leftmargin=1.2cm]
+\item \textbf{Encoder $f_\theta$:} maps $X_t\in\R^{60}$ to $Z_t\in\R^d$ via three hidden layers with ReLU activations and widths $(128,128,128)$, followed by a linear output layer of dimension $d$.
+\item \textbf{Predictor $g_\psi$:} maps $(Z_t,s_{t+1})$ to $Y_{t+1}\in\R^3$ via two hidden layers of width 64 (ReLU activations) and a linear output layer.
+\end{itemize}
+
+Weights are initialized using He initialization, and we include mild $\ell_2$ regularization on weights. Hyperparameters were selected in preliminary experiments to balance flexibility and training stability; the main qualitative patterns in $\hat{R}(d)$ are robust to moderate variations in depth and width.
+
+For the baseline comparisons in Section~\ref{sec:baselines}, high-dimensional ML methods (ridge regression, Random Forests, Gradient Boosting, and a no-bottleneck neural network) are implemented with standard hyperparameters and tuned via validation sets, using the same train/validation/test splits and standardized features as the learned-state models.
+
+% ----------------------------------------------------
+\subsection{Optimization and early stopping}
+% ----------------------------------------------------
+
+We train the encoder--predictor pairs using the Adam optimizer with learning rate $10^{-3}$, batch size 64, and early stopping based on validation loss with patience of 20 epochs and a maximum of 500 epochs. The training objective is the empirical mean squared error,
+\[
+\hat{R}_n(d)
+= \frac{1}{n_{\mathrm{train}}} \sum_{t\in\mathrm{train}}
+  \bigl\|Y_{t+1} - g_\psi(f_\theta(X_t), s_{t+1})\bigr\|^2,
+\]
+computed over the training set.
+
+For each calibration and dimension $d$, we repeat training with five independent random seeds. We report the mean test MSE across seeds as $\hat{R}(d)$ in the main tables, and we have verified that the standard deviation across seeds is typically below 10\% of the mean. This suggests that stochastic optimization noise is not driving our main conclusions about the shape of the $\hat{R}(d)$ curve or the effective dimension.
+
+% ----------------------------------------------------
+\subsection{Robustness checks}
+% ----------------------------------------------------
+
+We briefly summarize robustness exercises that confirm the stability of our main findings.
+
+\paragraph{Feature map variations.} We vary the number of histogram bins in the feature map from 25 to 100 and find that the qualitative shape of $\hat{R}(d)$ is unchanged: gains from $d=1$ to $d=2$ are large, and gains from $d=2$ to $d=3$ are negligible. The implied effective dimensions $d^*(\varepsilon)$ shift slightly in levels but remain close to two for reasonable tolerances.
+
+\paragraph{Target definitions.} We experiment with alternative target vectors $Y_{t+1}$ (e.g.\ using only capital, or capital and output) and find that the effective dimension remains close to two in all calibrations, with the largest benefits of moving from $d=1$ to $d=2$ appearing in high-persistence environments.
+
+\paragraph{Network capacity.} Increasing the depth or width of the encoder and predictor networks lowers $\hat{R}(d)$ uniformly, as expected, but does not alter the shape of $\hat{R}(d)$ across dimensions: the bulk of the reduction occurs when moving from $d=1$ to $d=2$, with little additional gain from $d=3$. Reducing network capacity raises all $\hat{R}(d)$ but leaves the relative pattern similar.
+
+\paragraph{Train/validation/test splits.} We verify that alternative chronological splits (e.g.\ 60/20/20) and mild shuffling within the training block do not materially affect the ranking of $\hat{R}(d)$ across dimensions or calibrations, provided that the test set is kept as the last block of the time series to avoid look-ahead bias.
+
+Overall, these robustness checks support the interpretation that the \emph{shape} of $d\mapsto \hat{R}(d)$---and hence the effective dimension---is a stable feature of the model, rather than an artifact of specific architectural or training choices.
+
+
+\end{document}

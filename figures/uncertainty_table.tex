@@ -1,0 +1,16 @@
+
+\begin{table}[htbp]
+\centering
+\caption{Uncertainty in learned aggregate risk (HighRisk\_HighPersist\_Borrow calibration)}
+\label{tab:uncertainty}
+\begin{tabular}{cccc}
+\toprule
+$d$ & $\bar{\hat{R}}(d)$ & std$(\hat{R})$ & SE$(\hat{R})$ \\
+\midrule
+1 & 0.1251 & 0.0070 & 0.0031 \\
+2 & 0.0680 & 0.0061 & 0.0027 \\
+3 & 0.0671 & 0.0033 & 0.0015 \\
+\bottomrule
+\end{tabular}
+\parbox{0.9\textwidth}{\footnotesize \textit{Notes:} Results across 5 random seeds for the high-risk, high-persistence calibration with borrowing ($\sigma_e=0.25$, $\rho_e=0.95$, $a_{\min}=-1.0$). Standard errors are small relative to the level and the elbow at $d=2$ is robust to seed variation.}
+\end{table}

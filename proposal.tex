@@ -1,0 +1,806 @@
+\begin{document}
+
+\title{Learned Aggregate States in Heterogeneous-Agent Models:\\
+A Unified Macro--Statistics--ML--Computation Blueprint}
+
+
+The project starts from a simple observation:
+
+\emph{In heterogeneous-agent macro models, the exact state is the
+cross-sectional distribution of individual states. In practice, we almost
+never use that full object; we compress it into one or a few aggregate
+variables.}
+
+This compression is usually motivated by \emph{approximate aggregation}:
+the idea that a small set of aggregates---like aggregate capital $K_t$ and
+perhaps a few moments---is sufficient to predict future macro variables.
+
+The project asks three central questions:
+
+\begin{enumerate}[label=(Q\arabic*)]
+  \item \textbf{How many aggregate factors does the economy actually need}
+  for accurate prediction of macro aggregates?
+  \item \textbf{What do those factors represent economically} 
+  (level of capital, inequality, mass at borrowing constraint, tail risk, etc.)?
+  \item \textbf{What are the macro and policy costs of using too few}
+  aggregate state variables?
+\end{enumerate}
+
+To answer these, we:
+
+\begin{itemize}
+  \item treat the wealth distribution as the primitive state,
+  \item encode it into a high-dimensional feature vector $X_t$,
+  \item learn a low-dimensional representation $Z_t = f_\theta(X_t)$,
+  \item predict future aggregates via $g_\psi(Z_t,s_{t+1})$,
+  \item and study the minimal achievable prediction error as a function
+  of dimension $d = \dim(Z_t)$.
+\end{itemize}
+
+The result is a \emph{map of approximate aggregation} across model
+environments: in some calibrations, a one-dimensional learned state
+performs as well as any higher-dimensional representation; in others,
+additional factors are clearly required.
+
+% ====================================================
+\section{Economic Environment: Aiyagari as a Testbed}
+% ====================================================
+
+We use a one-asset Aiyagari model as a baseline testbed. It is minimal yet
+rich enough to feature nontrivial wealth distributions, inequality, and
+borrowing constraints.
+
+\subsection{Households and preferences}
+
+Time is discrete: $t = 0,1,2,\dots$. A continuum of households
+$i \in [0,1]$ solve:
+\begin{equation}
+  \max_{\{c_{it},a_{i,t+1}\}} 
+  \E_0 \left[
+    \sum_{t=0}^{\infty} \beta^t u(c_{it})
+  \right],
+  \quad 0 < \beta < 1,
+\end{equation}
+where $u$ is typically CRRA:
+\begin{equation}
+  u(c) = \begin{cases}
+    \dfrac{c^{1-\sigma}}{1-\sigma}, & \sigma \neq 1, \\
+    \log(c), & \sigma = 1.
+  \end{cases}
+\end{equation}
+
+Individual state:
+\[
+  x_{it} = (a_{it},e_{it}),
+\]
+where $a_{it}$ is asset holdings and $e_{it}$ is an idiosyncratic
+productivity shock.
+
+\subsection{Idiosyncratic risk}
+
+The shock $e_{it}$ lives in a finite set $\mathcal{E}$ with 
+Markov transition matrix $\Pi$:
+\begin{equation}
+  \Prob(e_{i,t+1} = e' \mid e_{it} = e) = \Pi(e,e').
+\end{equation}
+
+We will vary the variance and persistence of this process across
+configurations.
+
+\subsection{Budget constraint and borrowing}
+
+Given factor prices $(r_t,w_t)$, the period budget constraint is:
+\begin{equation}
+  c_{it} + a_{i,t+1} = (1+r_t)a_{it} + w_t e_{it} - T_t,
+\end{equation}
+with borrowing constraint:
+\begin{equation}
+  a_{i,t+1} \ge \underline{a}.
+\end{equation}
+
+The tax term $T_t$ can capture proportional or progressive labor-income
+taxes. Tax progressivity and the tightness of $\underline{a}$ will be key
+axes along which we vary the model.
+
+\subsection{Firms, production, and aggregates}
+
+A representative firm operates technology:
+\begin{equation}
+  Y_t = F(K_t,L_t),
+\end{equation}
+e.g.\ Cobb--Douglas:
+\[
+  F(K_t,L_t) = K_t^\alpha L_t^{1-\alpha}, \quad 0<\alpha<1,
+\]
+with depreciation $\delta$. Competitive factor prices:
+\begin{align}
+  r_t &= F_K(K_t,L_t) - \delta, \\
+  w_t &= F_L(K_t,L_t).
+\end{align}
+
+Aggregate variables:
+\begin{align}
+  K_t &= \int a \,\mathrm{d}\mu_t(a,e), \\
+  L_t &= \int e \,\mathrm{d}\mu_t(a,e), \\
+  C_t &= \int c_{it} \,\mathrm{d}i, \\
+  Y_t &= F(K_t,L_t).
+\end{align}
+
+\subsection{Wealth distribution as the state}
+
+Let $\mu_t$ denote the cross-sectional distribution of $(a,e)$:
+\begin{equation}
+  \mu_t(A) = \int_0^1 \mathbf{1}\{(a_{it},e_{it}) \in A\}\,\mathrm{d}i,
+  \quad A \subseteq \mathcal{A}\times \mathcal{E}.
+\end{equation}
+Write $\cM$ for the set of Borel probability measures on
+$\mathcal{A}\times\mathcal{E}$.
+
+Given individual policy functions and aggregate shocks $\xi_{t+1}$, the
+evolution of $\mu_t$ is:
+\begin{equation}
+  \mu_{t+1} = \mathcal{T}(\mu_t,\xi_{t+1}),
+\end{equation}
+for some operator $\mathcal{T}: \cM\times\Xi \to \cM$.
+
+% ====================================================
+\section{Aggregate Law of Motion and Approximate Aggregation}
+% ====================================================
+
+\subsection{Aggregate law of motion}
+
+Let $Y_t \in \R^q$ collect the aggregate series we care about, e.g.:
+\[
+  Y_t = (K_t,C_t,Y_t)^\top.
+\]
+Let $s_{t+1} \in \cS$ be the vector of aggregate shocks known at $t$ 
+(or drawn between $t$ and $t+1$), e.g.\ productivity, policy variables.
+
+The model implies a mapping:
+\begin{equation}
+  Y_{t+1} = h(\mu_t,s_{t+1}) + \varepsilon_{t+1},
+  \label{eq:macro_law}
+\end{equation}
+with $\E[\varepsilon_{t+1}\mid \mu_t,s_{t+1}] = 0$. For many numerical
+models, $\varepsilon_{t+1}$ is essentially zero and the mapping is
+deterministic given $\mu_t$ and the shock.
+
+Equivalently:
+\begin{equation}
+  \E[Y_{t+1} \mid \mu_t, s_{t+1}] = h(\mu_t,s_{t+1}).
+\end{equation}
+
+\subsection{Traditional approximate aggregation}
+
+In practice, macroeconomists rarely track $\mu_t$ directly. Instead, they
+choose a low-dimensional summary $S_t$:
+\[
+  S_t = \phi(\mu_t) \in \R^d,
+\]
+and approximate:
+\begin{equation}
+  \E[Y_{t+1}\mid \mu_t,s_{t+1}]
+  \approx g(S_t,s_{t+1}),
+\end{equation}
+for some function $g$.
+
+Typical examples:
+\begin{itemize}
+  \item One-dimensional: $S_t = (K_t)$.
+  \item Small vector: $S_t = (K_t,\text{Gini}_t)$ or 
+  $(K_t, \text{Top10Share}_t,\dots)$.
+\end{itemize}
+
+The Krusell--Smith method assumes a parametric form for $g$ (e.g.\ linear)
+and estimates it by simulation.
+
+\subsection{Predictive sufficiency and approximate aggregation}
+
+We adopt a weak statistical notion of sufficiency tailored to prediction.
+
+\begin{definition}[Predictive sufficiency]
+A mapping $S:\cM \to \R^d$ is \emph{predictively sufficient} for $Y_{t+1}$
+given $s_{t+1}$ if
+\begin{equation}
+  \E[Y_{t+1}\mid \mu_t, s_{t+1}]
+  = \E[Y_{t+1}\mid S(\mu_t), s_{t+1}]
+  \quad \text{a.s.}
+\end{equation}
+\end{definition}
+
+Approximate aggregation corresponds to the existence of a low-dimensional
+$S$ such that the conditional expectation can be approximated well via
+$S(\mu_t)$ instead of the full $\mu_t$.
+
+We do not insist on strong structural sufficiency in the statistical sense;
+our focus is on \emph{predictive} performance and its macro implications.
+
+% ====================================================
+\section{Representation Learning Framework}
+% ====================================================
+
+\subsection{From distributions to features}
+
+We do not observe $\mu_t$ directly in code; we simulate micro data
+$\{(a_{it},e_{it})\}_{i=1}^N$ and convert it to features $X_t \in \R^p$:
+\begin{equation}
+  X_t = \Phi(\mu_t),
+\end{equation}
+for a feature map $\Phi:\cM \to \R^p$.
+
+Baseline choice: histogram-based encoding on an asset grid 
+$[b_1,b_2),\dots,[b_{B-1},b_B)$:
+\begin{equation}
+  X_t = \Big(\mu_t([b_1,b_2)),\dots,\mu_t([b_{B-1},b_B))\Big)
+  \in \R^{B-1}.
+\end{equation}
+We can augment $X_t$ with:
+\begin{itemize}
+  \item higher moments of $a$ (mean, variance, skewness),
+  \item inequality measures (Gini, top 10\%, top 1\%),
+  \item mass at borrowing constraint $a=\underline{a}$,
+  \item potentially cross-moments involving $e$.
+\end{itemize}
+
+The feature construction is a computational step, but it has statistical and
+ML implications (discretization, information content).
+
+\subsection{Encoder and predictor}
+
+We define an encoder:
+\begin{equation}
+  f_\theta: \R^p \to \R^d, \quad Z_t = f_\theta(X_t),
+\end{equation}
+where $Z_t$ is the \emph{learned aggregate state} of dimension $d$.
+
+We then define a predictor:
+\begin{equation}
+  g_\psi: \R^d \times \cS \to \R^q,
+  \quad \hat{Y}_{t+1} = g_\psi(Z_t, s_{t+1}),
+\end{equation}
+with parameters $\psi$.
+
+ML design:
+\begin{itemize}
+  \item $f_\theta$ and $g_\psi$ are typically neural networks
+  (feedforward, possibly with residual connections).
+  \item If we wish to capture richer dynamics, we can embed $Z_t$ into a
+  recurrent network handling sequences.
+\end{itemize}
+
+\subsection{Loss and minimal predictive risk}
+
+Let $(X_t,s_{t+1},Y_{t+1})$ be the data induced by the HA model. For
+a loss $\ell:\R^q\times\R^q \to [0,\infty)$, e.g.\ squared error
+$\ell(y,\hat{y})=\|y-\hat{y}\|^2$, define:
+\begin{equation}
+  \mathcal{L}_d(\theta,\psi)
+  = \E\left[
+      \ell\big(
+        Y_{t+1},
+        g_\psi(f_\theta(X_t), s_{t+1})
+      \big)
+    \right].
+\end{equation}
+The population minimal predictive risk at dimension $d$ is:
+\begin{equation}
+  R(d) = \inf_{\theta,\psi} \mathcal{L}_d(\theta,\psi).
+\end{equation}
+
+\begin{remark}
+This is not just an ML quantity: $R(d)$ is a property of the macro model
+plus the chosen feature map $\Phi$ and function classes for $f_\theta$
+and $g_\psi$. It tells us how much predictive information about
+$Y_{t+1}$ can be captured by a $d$-dimensional representation of $X_t$.
+\end{remark}
+
+\subsection{Effective dimension}
+
+For a tolerance $\varepsilon > 0$, we define the \emph{effective dimension}:
+\begin{equation}
+  d^\ast(\varepsilon)
+  = \min\{ d \in \{1,\dots,D\} : R(d) \le \varepsilon \}.
+\end{equation}
+
+Economically, $d^\ast(\varepsilon)$ answers: \emph{How many aggregate
+factors are needed to predict future aggregates within error
+$\varepsilon$?}
+
+In practice, we work with empirical estimates $\hat{R}(d)$ based on
+simulated time-series and define:
+\begin{equation}
+  \hat{d}^\ast(\varepsilon)
+  = \min\{ d : \hat{R}(d) \le \varepsilon \}.
+\end{equation}
+
+\subsection{Basic shape of $R(d)$}
+
+We expect the following qualitative behavior:
+
+\begin{itemize}
+  \item $R(d)$ is weakly decreasing in $d$ (more dimensions cannot harm
+  the best achievable risk).
+  \item For some models, $R(d)$ will flatten quickly at $d=1$; for others,
+  we may see significant gains from $d=2$ or $d=3$.
+  \item At very large $d$, $R(d)$ approaches a ``Bayes risk'' given the
+  limited flexibility of $f_\theta$ and $g_\psi$ and the finite
+  information in $X_t$.
+\end{itemize}
+
+The shape of $R(d)$ in different economic environments is precisely the
+object we want to map.
+
+% ====================================================
+\section{Machine Learning Design and Evaluation}
+% ====================================================
+
+\subsection{Data generation and splitting}
+
+For each economic configuration $j$:
+
+\begin{enumerate}[label=(\alph*)]
+  \item Solve the stationary equilibrium of the Aiyagari model
+  (value function or policy iteration).
+  \item Simulate a long trajectory:
+  \[
+    \{(X_t^{(j)},s_{t+1}^{(j)},Y_{t+1}^{(j)})\}_{t=0}^{T-1}.
+  \]
+  \item Split the time-series into:
+  \[
+    \mathcal{T}_{\text{train}},\;\mathcal{T}_{\text{val}},\;
+    \mathcal{T}_{\text{test}}
+  \]
+  with chronological order preserved (e.g.\ 60/20/20 or 70/15/15).
+\end{enumerate}
+
+This setup mirrors a forecasting environment: we train on earlier data
+and test on later data.
+
+\subsection{Network architectures}
+
+Baseline architecture:
+
+\begin{itemize}
+  \item \textbf{Encoder} $f_\theta$:
+  fully connected network with $L$ hidden layers,
+  ReLU activations, width chosen by preliminary experiments or
+  hyperparameter search.
+  \item \textbf{Predictor} $g_\psi$:
+  fully connected network taking $(Z_t,s_{t+1})$ as inputs and producing
+  $\hat{Y}_{t+1}$.
+\end{itemize}
+
+Extensions:
+
+\begin{itemize}
+  \item Variational bottleneck (encourage $Z_t$ to have simple structure).
+  \item Regularization that encourages coordinates of $Z_t$ to be
+  interpretable (e.g.\ sparsity or orthogonality penalties).
+  \item Sequence models (RNNs, GRUs) if we want to feed in short histories
+  of $Z_{t-h:t}$ instead of only $Z_t$.
+\end{itemize}
+
+\subsection{Training protocol}
+
+\begin{itemize}
+  \item Optimizer: Adam or AdamW with learning rate in a reasonable range.
+  \item Mini-batch training over time indices $t$.
+  \item Early stopping based on validation loss.
+  \item Hyperparameter tuning via random search or Bayesian optimization.
+\end{itemize}
+
+For each $d$, we train multiple random initializations to get a distribution
+of $\hat{R}(d)$ and ensure robustness.
+
+\subsection{Evaluation metrics}
+
+Beyond raw MSE, we consider:
+
+\begin{itemize}
+  \item \textbf{Relative MSE}: 
+  $\hat{R}(d)$ divided by $\operatorname{Var}(Y_{t+1})$, to make
+  results comparable across configurations.
+  \item \textbf{R$^2$ for each component} of $Y_{t+1}$.
+  \item \textbf{Out-of-calibration tests}: train on one configuration
+  (parameter vector) and test on another nearby configuration.
+  \item \textbf{IRF errors} and welfare metrics in policy experiments
+  (see below).
+\end{itemize}
+
+These evaluation criteria connect predictive performance to macro
+relevance and guard against overfitting.
+
+% ====================================================
+\section{Economic Experiments: Map of Approximate Aggregation}
+% ====================================================
+
+\subsection{Grid of economic configurations}
+
+Let $j \in \cJ$ index configurations. Each configuration corresponds to
+a parameter vector:
+\[
+  \theta_j^{\text{econ}}
+  = (\beta_j,\sigma_j,\delta_j,\alpha_j,
+     \rho_{e,j},\sigma_{e,j},
+     \underline{a}_j, \text{tax}_j, \text{shock}_j,\dots).
+\]
+
+We design a grid that varies:
+
+\begin{itemize}
+  \item \textbf{Idiosyncratic risk}:
+  low vs high variance and persistence of earnings.
+  \item \textbf{Borrowing constraints}:
+  loose vs tight lower bound $\underline{a}_j$.
+  \item \textbf{Tax progressivity}:
+  proportional vs mildly vs strongly progressive.
+  \item \textbf{Aggregate shocks}:
+  no aggregate shocks vs small vs moderate productivity shocks.
+\end{itemize}
+
+This grid is chosen to span environments where approximate aggregation is
+expected to be easy vs hard.
+
+\subsection{Computing $\hat{R}_j(d)$ and effective dimensions}
+
+For each $j$ and $d$:
+
+\begin{enumerate}[label=(\alph*)]
+  \item Generate data $\{(X_t^{(j)},s_{t+1}^{(j)},Y_{t+1}^{(j)})\}$.
+  \item Train encoder--predictor $(f_{\theta}^{(j,d)},g_\psi^{(j,d)})$.
+  \item Compute test risk:
+  \[
+    \hat{R}_j(d)
+    = \frac{1}{|\mathcal{T}_{\text{test}}|}
+      \sum_{t\in\mathcal{T}_{\text{test}}}
+      \ell\big(
+        Y_{t+1}^{(j)}, 
+        g_{\psi}^{(j,d)}(f_{\theta}^{(j,d)}(X_t^{(j)}),
+        s_{t+1}^{(j)})
+      \big).
+  \]
+  \item For tolerances $\varepsilon$ (e.g.\ 0.1\%, 0.5\%, 1\% relative MSE),
+  compute
+  \[
+    \hat{d}^\ast_j(\varepsilon)
+    = \min\{ d : \hat{R}_j(d) \le \varepsilon \}.
+  \]
+\end{enumerate}
+
+We then summarize:
+\begin{itemize}
+  \item Tables of $\hat{R}_j(d)$ across $d$ and $j$.
+  \item Heatmaps of $\hat{d}^\ast_j(\varepsilon)$ across the parameter grid.
+  \item Representative plots of $\hat{R}_j(d)$ vs $d$ for selected $j$.
+\end{itemize}
+
+These deliver the ``map of approximate aggregation'':
+where $d=1$ suffices, and where $d>1$ is clearly needed.
+
+% ====================================================
+\section{Policy Experiments and Mis-Specification Costs}
+% ====================================================
+
+Predictive $R(d)$ is informative, but macroeconomists also care about
+policy analysis: impulse responses, welfare, and robustness of conclusions
+to state-space misspecification.
+
+\subsection{Impulse responses under full vs approximate states}
+
+Pick a policy experiment, e.g.:
+
+\begin{itemize}
+  \item a shock to labor-income tax progressivity,
+  \item a temporary relaxation or tightening of borrowing constraints,
+  \item a sequence of productivity shocks.
+\end{itemize}
+
+We compare:
+
+\begin{enumerate}[label=(\alph*)]
+  \item \textbf{Full model:} simulate the HA model with the policy shock,
+  track $\{Y_t^{\text{full}}\}_{t=0}^T$.
+  \item \textbf{Approximate models:} starting from the same initial
+  $\mu_0$, compute $X_0$, then $Z_0^{(d)} = f_{\theta}^{(j,d)}(X_0)$.
+  Use the learned law of motion (possibly with an approximate update for
+  $X_t$ or $Z_t$) to generate $\{\hat{Y}_t^{(d)}\}_{t=0}^T$.
+\end{enumerate}
+
+Define IRF error at horizon $h$:
+\begin{equation}
+  \text{IRFErr}^{(d)}(h)
+  = \big\| Y_{t_0+h}^{\text{full}} - \hat{Y}_{t_0+h}^{(d)} \big\|,
+\end{equation}
+with $t_0$ the shock time. We can also consider relative errors or
+component-wise errors.
+
+Plots of $\text{IRFErr}^{(d)}(h)$ as a function of $h$ and $d$ show the
+\emph{dynamic cost} of using too few aggregate factors.
+
+\subsection{Welfare comparisons}
+
+In some experiments, we can compute welfare under the full and approximate
+laws of motion. Let $W^{\text{full}}$ denote welfare under the true dynamics
+and $W^{(d)}$ under the approximate dynamics. We can define a consumption
+equivalent loss $\lambda^{(d)}$ such that:
+\[
+  W^{(d)}(c(1+\lambda^{(d)})) = W^{\text{full}}(c),
+\]
+i.e.\ the percentage permanent consumption adjustment needed under the
+approximate model to deliver the same welfare as the full model.
+
+Even if we do not compute this in complete generality, numerical examples
+for selected configurations can be very compelling: ``using one-dimensional
+aggregation instead of two-dimensional leads to a 0.X\% welfare loss under
+this policy scenario.''
+
+% ====================================================
+\section{Comparisons with Hand-Crafted States and ML Baselines}
+% ====================================================
+
+To meaningfully claim value for learned states, we must compare them to
+baseline approaches.
+
+\subsection{Hand-crafted aggregate states}
+
+Define hand-crafted states:
+\begin{align}
+  S_t^{(1)} &= (K_t), \\
+  S_t^{(2)} &= (K_t,\text{Gini}_t), \\
+  S_t^{(3)} &= (K_t,\text{Gini}_t,\text{Top10}_t), \\
+  &\dots
+\end{align}
+
+For each, train a predictor:
+\[
+  \hat{Y}_{t+1}^{(m)}
+  = \tilde{g}_{\psi}^{(m)}(S_t^{(m)}, s_{t+1}),
+\]
+and compute test risk:
+\[
+  \hat{R}_{\text{hand},j}^{(m)}
+  = \frac{1}{|\mathcal{T}_{\text{test}}|}
+    \sum_{t\in\mathcal{T}_{\text{test}}}
+    \ell\big(
+      Y_{t+1}^{(j)},
+      \tilde{g}_\psi^{(m)}(S_t^{(m)}, s_{t+1})
+    \big).
+\]
+
+Comparisons of $\hat{R}_j(d)$ (learned) vs $\hat{R}_{\text{hand},j}^{(m)}$
+for the same dimensionality give clear evidence on whether learned states
+add value beyond standard macro aggregates.
+
+\subsection{Other ML baselines}
+
+For completeness, consider:
+
+\begin{itemize}
+  \item Linear models:
+  regress $Y_{t+1}$ on $(X_t,s_{t+1})$ directly.
+  \item Tree-based models:
+  random forests or gradient-boosted trees on $(X_t,s_{t+1})$.
+\end{itemize}
+
+These baselines address the concern that performance gains might be due
+to unrestricted flexibility rather than meaningful low-dimensional
+representation. If a low-dimensional $Z_t$ performs similarly to a high-capacity
+model directly on $X_t$, that suggests genuine low-dimensional structure.
+
+% ====================================================
+\section{Interpreting Learned States}
+% ====================================================
+
+To avoid black-box skepticism, we interpret the components of $Z_t$ using
+both economic insight and ML tools.
+
+\subsection{Regression on macro and distributional statistics}
+
+Let $Z_t = (Z_{t,1},\dots,Z_{t,d})^\top$. For each dimension $k$, consider:
+\begin{equation}
+  Z_{t,k}
+  \approx \alpha_k 
+    + \sum_m \beta_{k,m} M_{t,m} + \eta_{t,k},
+\end{equation}
+where $M_{t,m}$ are hand-crafted statistics:
+\begin{itemize}
+  \item $K_t$ (level of aggregate capital),
+  \item Gini coefficient,
+  \item top 10\% and top 1\% wealth shares,
+  \item mass at the borrowing constraint,
+  \item moments of $a$ and $e$,
+  \item etc.
+\end{itemize}
+
+We then compute:
+\begin{itemize}
+  \item $R^2$ of these regressions,
+  \item correlations $\text{Corr}(Z_{t,k},M_{t,m})$,
+  \item patterns across economic configurations $j$.
+\end{itemize}
+
+Goal: identify whether, for example,
+\begin{itemize}
+  \item $Z_{t,1}$ is essentially a smoothed measure of $K_t$,
+  \item $Z_{t,2}$ tracks inequality or the mass at the borrowing constraint,
+  \item $Z_{t,3}$ captures more subtle distributional shape.
+\end{itemize}
+
+\subsection{Shock experiments and regime interpretation}
+
+We can also interpret $Z_t$ via shock experiments:
+
+\begin{itemize}
+  \item Simulate impulse responses of both $(Z_t)$ and $M_{t,m}$ to
+  shocks (e.g.\ productivity).
+  \item Compare the dynamics of each $Z_{t,k}$ with standard macro and
+  distributional statistics.
+\end{itemize}
+
+We may label $Z_{t,1}$ as ``level state'', $Z_{t,2}$ as ``inequality state'',
+and so on, if the patterns clearly align.
+
+\subsection{Bit of ML interpretability}
+
+Use simple ML interpretability tools:
+
+\begin{itemize}
+  \item Partial dependence: fix all but one feature (e.g.\ Gini) and
+  study how $Z_{t,k}$ or predicted $Y_{t+1}$ changes as that feature
+  varies.
+  \item Input gradients or permutation importance to see which components
+  of $X_t$ drive $Z_t$ and predictions.
+\end{itemize}
+
+We do not need to overdo this; a few clear plots showing how $Z_t$ reacts
+to changes in key distribution statistics can be very informative.
+
+% ====================================================
+\section{Potential Issues and Robustness Strategy}
+% ====================================================
+
+\subsection{Dependence on feature map and discretization}
+
+\textbf{Issue:} learned states depend on how we map $\mu_t$ to $X_t$.
+
+\textbf{Plan:}
+\begin{itemize}
+  \item Compare multiple feature maps (histograms, quantiles, moments-only).
+  \item Show that qualitative conclusions about $d^\ast(\varepsilon)$
+  do not hinge on the exact discretization.
+  \item Document where they do differ and interpret whether differences
+  are economically meaningful.
+\end{itemize}
+
+\subsection{Overfitting and estimation noise}
+
+\textbf{Issue:} ML models may overfit, especially as $d$ grows.
+
+\textbf{Plan:}
+\begin{itemize}
+  \item Use time-based splits, early stopping, and regularization.
+  \item Examine training vs test risk and multiple random seeds.
+  \item Consider out-of-calibration tests: train on some parameter
+  values, test on others.
+\end{itemize}
+
+\subsection{Numerical solution artifacts}
+
+\textbf{Issue:} solution of the Aiyagari model introduces discretization
+and truncation errors.
+
+\textbf{Plan:}
+\begin{itemize}
+  \item Perform grid-refinement checks on the economic solution.
+  \item Re-run a subset of experiments with a finer grid and compare
+  learned $R(d)$.
+\end{itemize}
+
+\subsection{Economic relevance}
+
+\textbf{Issue:} reviewers might see this as an ML side-show without strong
+economic content.
+
+\textbf{Plan:}
+\begin{itemize}
+  \item Emphasize clear policy-relevant examples (IRF and welfare errors).
+  \item Tie learned factors back to standard macro narratives (e.g.\ how
+  inequality or constraints shape dynamics).
+  \item Highlight that the project produces \emph{diagnostics} for when
+  Krusell--Smith-type approximations are safe vs dangerous.
+\end{itemize}
+
+% ====================================================
+\section{Extensions and Broader Research Agenda}
+% ====================================================
+
+This project can naturally lead to several extensions:
+
+\subsection{Beyond Aiyagari}
+
+Apply the learned state framework to:
+\begin{itemize}
+  \item two-asset models (liquid + illiquid assets),
+  \item models with aggregate shocks in preferences or risk,
+  \item overlapping-generations models.
+\end{itemize}
+
+\subsection{Learned states inside solution algorithms}
+
+Instead of only analyzing equilibrium dynamics, use $Z_t$ as a state in
+solving models:
+\begin{itemize}
+  \item approximate law of motion for $Z_t$ and $Y_t$,
+  \item use $Z_t$ as the state in projection methods, reducing dimensionality.
+\end{itemize}
+
+\subsection{Empirical wealth distributions}
+
+With appropriate data, learn $Z_t$ from observed wealth distributions and
+study whether a small number of factors explain macro dynamics of
+consumption or investment.
+
+\subsection{Links to causal ML}
+
+Later work can use $Z_t$ as a low-dimensional control/treatment state in
+causal models of policy interventions, connecting to causal representation
+learning.
+
+% ====================================================
+\section{Practical Implementation Roadmap}
+% ====================================================
+
+A concrete, staged plan:
+
+\subsection{Phase 1: Baseline model and data pipeline}
+
+\begin{itemize}
+  \item Implement or adopt a clean Aiyagari solver.
+  \item Generate long time-series for a baseline calibration.
+  \item Build feature maps $\Phi(\mu_t)$ and construct $X_t$, $Y_{t+1}$,
+  and $s_{t+1}$.
+\end{itemize}
+
+\subsection{Phase 2: First ML experiments}
+
+\begin{itemize}
+  \item Train simple encoder--predictor models for $d=1,2,3$ on the 
+  baseline calibration.
+  \item Inspect $\hat{R}(d)$, training vs test error, and stability across
+  runs.
+  \item Verify that the pipeline works end-to-end.
+\end{itemize}
+
+\subsection{Phase 3: Grid of configurations and map of $d^\ast_j(\varepsilon)$}
+
+\begin{itemize}
+  \item Design parameter grid $\cJ$ and generate data for each $j$.
+  \item Compute $\hat{R}_j(d)$ and $\hat{d}^\ast_j(\varepsilon)$.
+  \item Organize results in tables and figures.
+\end{itemize}
+
+\subsection{Phase 4: Baselines and interpretation}
+
+\begin{itemize}
+  \item Implement hand-crafted state models (e.g.\ $(K_t)$, $(K_t,\text{Gini}_t)$).
+  \item Implement simple ML baselines on $(X_t,s_{t+1})$ without dimension
+  reduction.
+  \item Run regressions and correlation analyses to interpret $Z_t$.
+\end{itemize}
+
+\subsection{Phase 5: Policy experiments and writing}
+
+\begin{itemize}
+  \item Run at least one flagship policy experiment (e.g.\ tax reform
+  or constraint changes) and compute IRF and welfare errors for different $d$.
+  \item Structure the paper around:
+    \begin{enumerate}[label=\roman*.]
+      \item concept and framework,
+      \item map of approximate aggregation,
+      \item comparison and interpretation,
+      \item policy relevance.
+    \end{enumerate}
+\end{itemize}
+
+
+\end{document}
